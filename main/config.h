@@ -22,7 +22,8 @@
 #define IDLE_SLEEP_MS       30000
 #define TUMBLE_MS           1400    // ST_TUMBLING duration (rise + spin)
 #define LOCK_MS             350     // ST_LOCKING duration (snap face-on, glow bloom, text fade)
-#define DISMISS_MS          300     // ST_DISMISSING duration (tap to fade the answer back to liquid)
+#define DISMISS_MS          300     // ST_DISMISSING duration (fade the answer out)
+#define SHOW_TIMEOUT_MS     90000   // auto-dismiss: after this long showing an answer, fade it out as if tapped
 
 // --- IMU ---
 // Acceleration magnitude in milli-g (1000 = 1g). A vigorous shake exceeds ~1500.

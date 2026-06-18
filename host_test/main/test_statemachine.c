@@ -140,6 +140,20 @@ TEST_CASE("shake while showing starts a new ask", "[sm]")
     TEST_ASSERT_EQUAL_INT(ST_SHAKING, sm_state(&sm));
 }
 
+TEST_CASE("showing auto-dismisses after the show timeout", "[sm]")
+{
+    sm_t sm = make_sm();
+    run_to_showing(&sm);
+    // Just before the timeout it is still showing...
+    sm_tick(&sm, EV_NONE, SHOW_TIMEOUT_MS - 100);
+    TEST_ASSERT_EQUAL_INT(ST_SHOWING, sm_state(&sm));
+    // ...crossing it begins the same fade a tap would, ending back at idle.
+    sm_tick(&sm, EV_NONE, 200);
+    TEST_ASSERT_EQUAL_INT(ST_DISMISSING, sm_state(&sm));
+    sm_tick(&sm, EV_NONE, DISMISS_MS + 50);
+    TEST_ASSERT_EQUAL_INT(ST_IDLE, sm_state(&sm));
+}
+
 TEST_CASE("shake during dismiss restarts immediately", "[sm]")
 {
     sm_t sm = make_sm();

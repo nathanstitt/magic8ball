@@ -138,11 +138,15 @@ void sm_tick(sm_t *sm, event_t ev, uint32_t dt_ms)
     case ST_SHOWING:
         // A tap dismisses the answer (fade back to dark liquid); a shake asks
         // again (the natural "shake the 8 ball" gesture starts a new answer).
+        // After SHOW_TIMEOUT_MS with no interaction, auto-dismiss the same way a
+        // tap would — fade the answer out and return to the dark idle liquid.
         if (ev == EV_TAP) {
             enter(sm, ST_DISMISSING);
         } else if (ev == EV_SHAKE) {
             sm->has_custom = false;
             enter(sm, ST_SHAKING);
+        } else if (sm->state_ms >= SHOW_TIMEOUT_MS) {
+            enter(sm, ST_DISMISSING);
         }
         break;
 
