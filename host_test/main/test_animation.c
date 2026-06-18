@@ -131,22 +131,56 @@ TEST_CASE("shaking pose: submerged, hidden, clouded", "[anim]")
     TEST_ASSERT_EQUAL_UINT8(220, sc.murk);
 }
 
-TEST_CASE("tumbling rises the pyramid and fades it in over time", "[anim]")
+TEST_CASE("tumbling slides in from the entry point and settles at center", "[anim]")
 {
+    // Entry point off the bottom edge (as the state machine would seed).
+    float start_x = (float)DISP_CX;
+    float start_y = (float)DISP_CY + 290.0f;
+
     scene_t early = {0};
     early.state = ST_TUMBLING;
+    early.pyr_start_x = start_x;
+    early.pyr_start_y = start_y;
     mat3_identity(early.pyr_rot);
     anim_apply(&early, 1, 16);
 
     scene_t late = {0};
     late.state = ST_TUMBLING;
+    late.pyr_start_x = start_x;
+    late.pyr_start_y = start_y;
     mat3_identity(late.pyr_rot);
     anim_apply(&late, TUMBLE_MS, 16);
 
-    TEST_ASSERT_TRUE(late.pyr_cy < early.pyr_cy);          // rose upward
-    TEST_ASSERT_TRUE(late.pyr_alpha > early.pyr_alpha);    // faded in
-    TEST_ASSERT_FLOAT_WITHIN(2.0f, (float)DISP_CY, late.pyr_cy);  // settles at center
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, late.pyr_glow);          // no glow during tumble
+    // Moves from the entry point toward center (here: rises upward).
+    TEST_ASSERT_TRUE(late.pyr_cy < early.pyr_cy);
+    TEST_ASSERT_TRUE(late.pyr_alpha > early.pyr_alpha);          // faded in
+    // At exactly TUMBLE_MS, ease=1 and the jitter has fully damped -> dead center.
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, (float)DISP_CX, late.pyr_cx);
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, (float)DISP_CY, late.pyr_cy);
+    // Glow is off early in the rise, then pre-blooms to TUMBLE_GLOW_MAX by the
+    // end (LOCKING carries it the rest of the way to 1.0).
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, early.pyr_glow);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, TUMBLE_GLOW_MAX, late.pyr_glow);
+}
+
+TEST_CASE("tumbling enters from different directions per start point", "[anim]")
+{
+    // Two different entry points -> different mid-rise positions (proves the
+    // triangle slides in from the seeded direction, not always from below).
+    scene_t a = {0};
+    a.state = ST_TUMBLING;
+    a.pyr_start_x = (float)DISP_CX + 290.0f;   // from the right
+    a.pyr_start_y = (float)DISP_CY;
+    anim_apply(&a, TUMBLE_MS / 4, 16);
+
+    scene_t b = {0};
+    b.state = ST_TUMBLING;
+    b.pyr_start_x = (float)DISP_CX - 290.0f;   // from the left
+    b.pyr_start_y = (float)DISP_CY;
+    anim_apply(&b, TUMBLE_MS / 4, 16);
+
+    TEST_ASSERT_TRUE(a.pyr_cx > (float)DISP_CX);   // still right of center
+    TEST_ASSERT_TRUE(b.pyr_cx < (float)DISP_CX);   // still left of center
 }
 
 TEST_CASE("tumbling actually rotates the matrix away from identity", "[anim]")

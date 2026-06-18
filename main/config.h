@@ -59,6 +59,24 @@
 // during the rise before settling face-on.
 #define WOBBLE_AMP      0.35f
 
+// Positional shake as the triangle drifts in (bobbing through liquid). Peak
+// jitter in px, decaying to 0 as it settles dead-center. Two sine components at
+// these Hz give a jittery (non-uniform) shimmy rather than a clean oscillation.
+#define JITTER_AMP      19.0f
+#define JITTER_FREQ_X   6.5f
+#define JITTER_FREQ_Y   8.3f
+
+// The die starts small (distant, rising from the depths) and grows to full size
+// as it reaches center: pyr_scale eases from TUMBLE_SCALE_START to 1.0.
+#define TUMBLE_SCALE_START   0.15f
+
+// The glow begins ramping up during the last part of the rise (before the
+// formal lock) so it's already blooming as the die settles. Progress [0..1]
+// through TUMBLING at which the pre-glow starts, and the glow level it reaches
+// by the end of the rise (LOCKING then carries it to 1.0).
+#define TUMBLE_GLOW_START_P  0.6f
+#define TUMBLE_GLOW_MAX      0.65f
+
 // --- Triangle face gradient (the lit blue die look) ---
 // bary_min runs 0 at an edge to ~0.333 at the centroid.
 #define GRAD_CENTER_BARY   0.34f   // bary_min at/after which the fill is full center color

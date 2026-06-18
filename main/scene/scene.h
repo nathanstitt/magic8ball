@@ -44,6 +44,13 @@ typedef struct {
     float    pyr_ry_rate;
     float    pyr_rz_rate;
 
+    // Random off-screen entry point for this ask: the triangle slides in from
+    // here toward the center during ST_TUMBLING (chosen per-ask in the state
+    // machine). pyr_jit_phase varies the positional-shake phase per ask.
+    float    pyr_start_x;
+    float    pyr_start_y;
+    float    pyr_jit_phase;
+
     // Visual state.
     uint8_t  pyr_alpha;    // 0 = invisible, 255 = fully opaque
     float    pyr_glow;     // 0..1, drives edge glow width/intensity

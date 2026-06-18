@@ -14,6 +14,7 @@
 
 #include <glm/glm.hpp>
 
+#include <math.h>
 #include <stdint.h>
 
 #include "pyramid.h"
@@ -64,13 +65,16 @@ void pyramid_render(fb_t *fb, const scene_t *sc)
     // --- Smooth outer bloom: the die's light bleeding into the liquid. Driven
     // by pyr_glow (0 during the rise -> 1 when locked) so the glow is SKIPPED
     // entirely while tumbling (keeping those frames cheap) and blooms outward as
-    // the answer locks in. Both the reach and the alpha grow with pyr_glow. ---
+    // the answer locks in. Reach and alpha grow with sqrt(pyr_glow) so the glow
+    // is a visible halo as soon as it starts (a linear ramp made the first
+    // bits a near-invisible 4px sliver). ---
     if (sc->pyr_glow > 0.01f) {
-        float reach = GLOW_DIST * sc->pyr_glow;
+        float g = sqrtf(sc->pyr_glow);   // front-loaded ramp: visible early
+        float reach = GLOW_DIST * g;
         if (reach < 1.0f) {
             reach = 1.0f;
         }
-        uint8_t glow_peak = (uint8_t)((float)GLOW_PEAK_ALPHA * sc->pyr_glow
+        uint8_t glow_peak = (uint8_t)((float)GLOW_PEAK_ALPHA * g
                                       * ((float)sc->pyr_alpha / 255.0f));
         draw_triangle_glow(fb,
                            sx[0], sy[0], sx[1], sy[1], sx[2], sy[2],

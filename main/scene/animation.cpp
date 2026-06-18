@@ -211,20 +211,42 @@ void anim_apply(scene_t *sc, uint32_t state_ms, uint32_t dt_ms)
     case ST_TUMBLING: {
         float p = clamp01((float)state_ms / (float)TUMBLE_MS);
         float e = ease_out_cubic(p);
-        sc->pyr_cx = (float)DISP_CX;
-        sc->pyr_cy = lerpf(PYRAMID_START_Y, (float)DISP_CY, e);
-        sc->pyr_scale = 1.0f;
-        sc->pyr_alpha = (uint8_t)((float)COL_TRI_ALPHA * e);
-        sc->pyr_glow = 0.0f;              // no glow during the rise
-        sc->text_alpha = 0;
-
-        // Gentle damped wobble around face-on (NOT a full tumble). Build the
-        // rotation absolutely each frame from identity so it stays mostly
-        // forward and only tilts a little to reveal the sides. The seeded
-        // per-answer rates act as wobble frequencies (varied + deterministic);
-        // amplitude decays with (1-e) so it settles face-on by the end.
         float t_s = (float)state_ms / 1000.0f;
         float decay = 1.0f - e;
+
+        // Slide in from this ask's random off-screen entry point toward center.
+        float base_x = lerpf(sc->pyr_start_x, (float)DISP_CX, e);
+        float base_y = lerpf(sc->pyr_start_y, (float)DISP_CY, e);
+
+        // Positional shake that damps to zero as it settles (bobbing through
+        // liquid). Two different frequencies + the per-ask phase make it jittery
+        // rather than a clean oscillation.
+        float jx = JITTER_AMP * decay * sinf(JITTER_FREQ_X * t_s * 6.2832f + sc->pyr_jit_phase);
+        float jy = JITTER_AMP * decay * sinf(JITTER_FREQ_Y * t_s * 6.2832f + sc->pyr_jit_phase * 1.3f);
+        sc->pyr_cx = base_x + jx;
+        sc->pyr_cy = base_y + jy;
+
+        // Grow from small (distant) to full size as it reaches center.
+        sc->pyr_scale = lerpf(TUMBLE_SCALE_START, 1.0f, e);
+        sc->pyr_alpha = (uint8_t)((float)COL_TRI_ALPHA * e);
+        sc->text_alpha = 0;
+
+        // Glow stays off through most of the rise (cheap), then begins blooming
+        // over the last stretch so it's already glowing as it settles. Ramps
+        // 0 -> TUMBLE_GLOW_MAX between TUMBLE_GLOW_START_P and p=1; LOCKING
+        // carries it the rest of the way to 1.0.
+        if (p > TUMBLE_GLOW_START_P) {
+            float gp = (p - TUMBLE_GLOW_START_P) / (1.0f - TUMBLE_GLOW_START_P);
+            sc->pyr_glow = TUMBLE_GLOW_MAX * gp;
+        } else {
+            sc->pyr_glow = 0.0f;
+        }
+
+        // Gentle damped rotational wobble around face-on (NOT a full tumble).
+        // Build the rotation absolutely each frame from identity so it stays
+        // mostly forward and only tilts a little to reveal the sides. The seeded
+        // per-answer rates act as wobble frequencies; amplitude decays with
+        // (1-e) so it settles face-on by the end.
         float ax = WOBBLE_AMP * decay * sinf(sc->pyr_rx_rate * t_s * 6.2832f);
         float ay = WOBBLE_AMP * decay * sinf(sc->pyr_ry_rate * t_s * 6.2832f + 1.7f);
         float az = (WOBBLE_AMP * 0.4f) * decay * sinf(sc->pyr_rz_rate * t_s * 6.2832f);
@@ -252,7 +274,9 @@ void anim_apply(scene_t *sc, uint32_t state_ms, uint32_t dt_ms)
         sc->pyr_cy = (float)DISP_CY;
         sc->pyr_scale = 1.0f;
         sc->pyr_alpha = 255;
-        sc->pyr_glow = e;
+        // Continue the bloom from where the rise left off (TUMBLE_GLOW_MAX) up
+        // to full, so the glow grows smoothly across the tumble->lock boundary.
+        sc->pyr_glow = lerpf(TUMBLE_GLOW_MAX, 1.0f, e);
         sc->text_alpha = (uint8_t)(255.0f * e);
         sc->murk = 0;
         break;

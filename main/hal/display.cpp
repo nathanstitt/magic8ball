@@ -65,6 +65,13 @@ int display_init(void)
     // disturb panel state). It does NOT enable the backlight, so we do.
     bsp_display_backlight_on();
 
+    // NOTE: a 90deg hardware rotation (MADCTL MV swap, e.g. via
+    // bsp_display_rotation_set) is possible but, on this panel, every MV+mirror
+    // combination leaves a ~6px strip of unaddressed RAM along one edge (the
+    // visible window is offset within 472x466 RAM and the 466 framebuffer can't
+    // cover the swapped axis cleanly). Not worth the artifact — left at the
+    // default orientation.
+
     // Round the allocation up to a whole cache line so the final strip's
     // cache-line-aligned msync (below) never runs past the buffer end.
     size_t fb_bytes = (size_t)DISP_W * DISP_H * 2;

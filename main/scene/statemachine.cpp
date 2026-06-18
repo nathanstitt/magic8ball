@@ -1,5 +1,11 @@
 #include "statemachine.h"
 #include "animation.h"
+#include "config.h"
+#include <math.h>
+
+// Distance beyond the visible circle where the triangle's entry point sits, so
+// it slides in fully from off-screen.
+#define ENTRY_MARGIN   60.0f
 
 static void enter(sm_t *sm, state_t s)
 {
@@ -20,6 +26,17 @@ static void enter(sm_t *sm, state_t s)
         sm->scene.pyr_rz_rate = TUMBLE_RZ_MIN +
             ((h >> 24) & 0xFF) / 255.0f * (TUMBLE_RZ_MAX - TUMBLE_RZ_MIN);
         mat3_identity(sm->scene.pyr_rot);
+
+        // Pick a RANDOM entry direction for this ask (hardware RNG), so the
+        // triangle slides in from a different edge each time. The start point is
+        // just beyond the visible circle along that angle.
+        uint32_t r = sm->picker.rng ? sm->picker.rng() : 0;
+        float angle = (float)(r % 36000u) * (3.14159265f / 18000.0f);  // 0..2pi
+        float dist = (float)DISP_RADIUS + ENTRY_MARGIN;
+        sm->scene.pyr_start_x = (float)DISP_CX + dist * cosf(angle);
+        sm->scene.pyr_start_y = (float)DISP_CY + dist * sinf(angle);
+        // Vary the positional-shake phase per ask too.
+        sm->scene.pyr_jit_phase = (float)((r >> 16) % 36000u) * (3.14159265f / 18000.0f);
     }
 }
 
