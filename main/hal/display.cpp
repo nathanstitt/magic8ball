@@ -95,81 +95,72 @@ uint16_t *display_back_buffer(void)
 // so strips begin on aligned boundaries (required for clean PSRAM->DMA sync).
 #define STRIP_ROWS          8
 
+// Byte-swap a strip (little-endian framebuffer -> big-endian the CO5300 wants)
+// and flush the swapped bytes from CPU cache to PSRAM so the SPI DMA reads
+// current data. The strip start is cache-aligned (see STRIP_ROWS); the size is
+// rounded up to a cache line.
+static void prepare_strip(uint16_t *buf, int y, int y_end)
+{
+    uint16_t *strip = buf + (size_t)y * DISP_W;
+    int strip_px = (y_end - y) * DISP_W;
+    for (int i = 0; i < strip_px; i++) {
+        strip[i] = __builtin_bswap16(strip[i]);
+    }
+    size_t strip_bytes = (size_t)strip_px * 2;
+    size_t aligned = (strip_bytes + PSRAM_CACHE_ALIGN - 1) & ~((size_t)PSRAM_CACHE_ALIGN - 1);
+    esp_cache_msync(strip, aligned, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+}
+
+static inline int strip_end(int y)
+{
+    int e = y + STRIP_ROWS;
+    return (e > DISP_H) ? DISP_H : e;
+}
+
 void display_flush_and_swap(void)
 {
     uint16_t *buf = s_fb[s_cur ^ 1];
 
-#ifdef DEBUG_FLUSH_PROFILE
-    static int64_t s_acc_swap = 0;
-    static int64_t s_acc_wait = 0;
-    static int s_n = 0;
-    int64_t swap_us = 0;
-    int64_t wait_us = 0;
-#endif
+    // Pipelined flush: keep one strip's DMA in flight while the CPU prepares
+    // (byte-swaps + cache-syncs) the NEXT strip. This hides most of the ~27ms
+    // per-frame swap cost under the ~23ms of DMA transfer time. Each strip's
+    // draw_bitmap is async (we wait on the previous strip before issuing the
+    // next, so only one transfer is outstanding at a time — within the SPI
+    // queue depth and keeping the swap in lock-step with the DMA).
 
-    for (int y = 0; y < DISP_H; y += STRIP_ROWS) {
-        int y_end = y + STRIP_ROWS;
-        if (y_end > DISP_H) {
-            y_end = DISP_H;
+    // Prepare + kick the first strip.
+    int y = 0;
+    int ye = strip_end(y);
+    prepare_strip(buf, y, ye);
+    bool inflight = false;
+    if (esp_lcd_panel_draw_bitmap(s_panel, 0, y, DISP_W, ye, buf + (size_t)y * DISP_W) == ESP_OK) {
+        inflight = true;
+    }
+
+    for (int ny = y + STRIP_ROWS; ny < DISP_H; ny += STRIP_ROWS) {
+        int nye = strip_end(ny);
+        // Prepare the next strip WHILE the current strip's DMA is transferring.
+        prepare_strip(buf, ny, nye);
+        // Now wait for the in-flight strip to finish before issuing the next.
+        if (inflight) {
+            if (xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(100)) != pdTRUE) {
+                ESP_LOGW(TAG, "flush DMA wait timed out");
+            }
+            inflight = false;
         }
-        uint16_t *strip = buf + (size_t)y * DISP_W;
-
-        // The CO5300 over QSPI expects big-endian RGB565, but our framebuffer is
-        // native little-endian (the BSP's own LVGL path calls
-        // lv_draw_sw_rgb565_swap for the same reason). Swap each pixel's bytes in
-        // place before shipping the strip. Safe: this buffer is fully redrawn
-        // next frame, and the other buffer is the active render target.
-#ifdef DEBUG_FLUSH_PROFILE
-        int64_t sw0 = esp_timer_get_time();
-#endif
-        int strip_px = (y_end - y) * DISP_W;
-        for (int i = 0; i < strip_px; i++) {
-            strip[i] = __builtin_bswap16(strip[i]);
+        if (esp_lcd_panel_draw_bitmap(s_panel, 0, ny, DISP_W, nye, buf + (size_t)ny * DISP_W) == ESP_OK) {
+            inflight = true;
         }
+    }
 
-        // Flush the just-swapped bytes from CPU cache to PSRAM so the SPI DMA
-        // reads current data (not stale cache lines). Size is rounded up to the
-        // cache line; the strip start is already aligned (see STRIP_ROWS).
-        size_t strip_bytes = (size_t)strip_px * 2;
-        size_t aligned_bytes = (strip_bytes + PSRAM_CACHE_ALIGN - 1) & ~((size_t)PSRAM_CACHE_ALIGN - 1);
-        esp_cache_msync(strip, aligned_bytes, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
-#ifdef DEBUG_FLUSH_PROFILE
-        swap_us += esp_timer_get_time() - sw0;
-#endif
-
-        esp_err_t ret = esp_lcd_panel_draw_bitmap(s_panel, 0, y, DISP_W, y_end, strip);
-        if (ret != ESP_OK) {
-            // No transfer started -> no callback will fire for this strip.
-            ESP_LOGW(TAG, "draw_bitmap strip y=%d failed: %s", y, esp_err_to_name(ret));
-            continue;
-        }
-        // draw_bitmap is async over QSPI: wait for this strip's DMA completion
-        // before issuing the next. 100ms timeout so a missed callback never hangs.
-#ifdef DEBUG_FLUSH_PROFILE
-        int64_t w0 = esp_timer_get_time();
-#endif
+    // Wait for the final strip's DMA.
+    if (inflight) {
         if (xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(100)) != pdTRUE) {
-            ESP_LOGW(TAG, "flush DMA wait timed out (strip y=%d)", y);
+            ESP_LOGW(TAG, "flush DMA wait timed out (last)");
         }
-#ifdef DEBUG_FLUSH_PROFILE
-        wait_us += esp_timer_get_time() - w0;
-#endif
     }
 
     s_cur ^= 1;
-
-#ifdef DEBUG_FLUSH_PROFILE
-    s_acc_swap += swap_us;
-    s_acc_wait += wait_us;
-    s_n++;
-    if (s_n >= 30) {
-        ESP_LOGI(TAG, "flush: swap+msync=%dms  dma_wait=%dms (avg/frame)",
-                 (int)(s_acc_swap / s_n / 1000), (int)(s_acc_wait / s_n / 1000));
-        s_acc_swap = 0;
-        s_acc_wait = 0;
-        s_n = 0;
-    }
-#endif
 }
 
 void display_set_brightness(uint8_t level)
