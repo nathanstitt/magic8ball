@@ -59,6 +59,11 @@ static void task_logic(void *arg)
     net_msg_t pending_msg;
     bool have_pending = false;
 
+    // The Wi-Fi status overlay (IP / setup hint) is only useful until the device
+    // has shown its first answer; after that the IP clutters the scene, so we
+    // latch this on the first SHOWING and stop publishing the status line.
+    bool first_answer_shown = false;
+
     while (true) {
         int64_t now_us = esp_timer_get_time();
         uint32_t dt_ms = (uint32_t)((now_us - last_us) / 1000);
@@ -106,16 +111,21 @@ static void task_logic(void *arg)
             } else if (prev_state == ST_SLEEP) {
                 power_display_sleep(false);
             }
+            // The first time an answer is fully shown, retire the status overlay.
+            if (st == ST_SHOWING) {
+                first_answer_shown = true;
+            }
             prev_state = st;
         }
 
         // Publish the latest scene for the render core. The status overlay
         // pointer is set here (post-copy) rather than in the state machine, so
         // scene/ stays networking-free: net_status_line() returns a stable,
-        // never-freed string (or NULL).
+        // never-freed string (or NULL). Suppress it once the first answer has
+        // been shown so the IP doesn't clutter the scene afterward.
         xSemaphoreTake(s_scene_mtx, portMAX_DELAY);
         memcpy(&s_shared_scene, sm_scene(&sm), sizeof(scene_t));
-        s_shared_scene.status = net_status_line();
+        s_shared_scene.status = first_answer_shown ? NULL : net_status_line();
         xSemaphoreGive(s_scene_mtx);
 
         vTaskDelay(pdMS_TO_TICKS(1));
