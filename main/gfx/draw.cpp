@@ -151,9 +151,89 @@ void draw_triangle(fb_t *fb, int x0, int y0, int x1, int y1, int x2, int y2,
     }
 }
 
-void draw_triangle_lit(fb_t *fb, int x0, int y0, int x1, int y1, int x2, int y2,
-                       uint16_t lit_color, uint8_t alpha,
-                       float fresnel, float spec, float glow)
+void draw_triangle_glow(fb_t *fb, int x0, int y0, int x1, int y1, int x2, int y2,
+                        uint16_t color, float max_dist, uint8_t peak_alpha)
+{
+    int md = (int)max_dist + 1;
+    int minx = (x0 < x1 ? (x0 < x2 ? x0 : x2) : (x1 < x2 ? x1 : x2)) - md;
+    int maxx = (x0 > x1 ? (x0 > x2 ? x0 : x2) : (x1 > x2 ? x1 : x2)) + md;
+    int miny = (y0 < y1 ? (y0 < y2 ? y0 : y2) : (y1 < y2 ? y1 : y2)) - md;
+    int maxy = (y0 > y1 ? (y0 > y2 ? y0 : y2) : (y1 > y2 ? y1 : y2)) + md;
+    if (minx < 0) {
+        minx = 0;
+    }
+    if (miny < 0) {
+        miny = 0;
+    }
+    if (maxx >= fb->w) {
+        maxx = fb->w - 1;
+    }
+    if (maxy >= fb->h) {
+        maxy = fb->h - 1;
+    }
+    if (minx > maxx || miny > maxy) {
+        return;
+    }
+
+    int area = edge_fn(x0, y0, x1, y1, x2, y2);
+    if (area == 0) {
+        return;
+    }
+    float sgn = (area > 0) ? 1.0f : -1.0f;
+
+    // Edge lengths to convert edge_fn values into true pixel distances.
+    float len0 = sqrtf((float)((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)));
+    float len1 = sqrtf((float)((x0 - x2) * (x0 - x2) + (y0 - y2) * (y0 - y2)));
+    float len2 = sqrtf((float)((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0)));
+    if (len0 < 1.0f) {
+        len0 = 1.0f;
+    }
+    if (len1 < 1.0f) {
+        len1 = 1.0f;
+    }
+    if (len2 < 1.0f) {
+        len2 = 1.0f;
+    }
+    float inv_md = 1.0f / max_dist;
+
+    for (int y = miny; y <= maxy; y++) {
+        uint16_t *row = fb->px + (size_t)y * fb->w;
+        for (int x = minx; x <= maxx; x++) {
+            // Signed perpendicular distance outside each edge (positive = the
+            // pixel is on the outside of that edge).
+            float d0 = -sgn * (float)edge_fn(x1, y1, x2, y2, x, y) / len0;
+            float d1 = -sgn * (float)edge_fn(x2, y2, x0, y0, x, y) / len1;
+            float d2 = -sgn * (float)edge_fn(x0, y0, x1, y1, x, y) / len2;
+            // Inside the triangle on all edges -> leave it for the fill.
+            if (d0 <= 0.0f && d1 <= 0.0f && d2 <= 0.0f) {
+                continue;
+            }
+            // Distance to the triangle ~ the largest outside-distance.
+            float dist = d0;
+            if (d1 > dist) {
+                dist = d1;
+            }
+            if (d2 > dist) {
+                dist = d2;
+            }
+            if (dist >= max_dist) {
+                continue;
+            }
+            // Smooth quadratic falloff: 1 at the edge -> 0 at max_dist.
+            float f = 1.0f - dist * inv_md;
+            f = f * f;
+            uint8_t a = (uint8_t)((float)peak_alpha * f);
+            if (a == 0) {
+                continue;
+            }
+            row[x] = rgb565_blend(row[x], color, a);
+        }
+    }
+}
+
+void draw_triangle_gradient(fb_t *fb, int x0, int y0, int x1, int y1, int x2, int y2,
+                            uint16_t center_color, uint16_t edge_color,
+                            uint16_t bevel_color, float bevel, uint8_t alpha)
 {
     int minx = x0 < x1 ? (x0 < x2 ? x0 : x2) : (x1 < x2 ? x1 : x2);
     int maxx = x0 > x1 ? (x0 > x2 ? x0 : x2) : (x1 > x2 ? x1 : x2);
@@ -177,7 +257,7 @@ void draw_triangle_lit(fb_t *fb, int x0, int y0, int x1, int y1, int x2, int y2,
 
     int area = edge_fn(x0, y0, x1, y1, x2, y2);
     if (area == 0) {
-        return;   // degenerate / zero-area triangle
+        return;
     }
     float inv_area = 1.0f / (float)area;
 
@@ -193,33 +273,31 @@ void draw_triangle_lit(fb_t *fb, int x0, int y0, int x1, int y1, int x2, int y2,
                 : (w0 <= 0 && w1 <= 0 && w2 <= 0);
             if (!inside) {
                 if (entered) {
-                    break;   // left the contiguous inside span
+                    break;
                 }
                 continue;
             }
             entered = true;
 
-            // Barycentric coordinates, each normalized to [0..1] via inv_area
-            // (which carries the winding sign so all three are non-negative).
-            // bary_min is the smallest -> distance to the nearest edge.
+            // bary_min: 0 at an edge, up to ~0.333 at the centroid.
             float b0 = w0 * inv_area;
             float b1 = w1 * inv_area;
             float b2 = w2 * inv_area;
             float bary_min = b0 < b1 ? (b0 < b2 ? b0 : b2) : (b1 < b2 ? b1 : b2);
-            float edge_t = 1.0f - (bary_min / GLOW_WIDTH);
-            if (edge_t < 0.0f) {
-                edge_t = 0.0f;
-            }
-            if (edge_t > 1.0f) {
-                edge_t = 1.0f;
-            }
 
-            uint16_t pixel = lit_color;
-            float add = (GLOW_INTENSITY * edge_t * glow)
-                      + (fresnel * edge_t)
-                      + spec;
-            if (add > 0.0f) {
-                pixel = rgb565_add(lit_color, add);
+            // Radial fill: edge_color at the rim -> center_color deep inside.
+            float t = bary_min / GRAD_CENTER_BARY;
+            if (t > 1.0f) {
+                t = 1.0f;
+            }
+            uint16_t pixel = rgb565_lerp(edge_color, center_color, t);
+
+            // Soft bevel: a thin lighter-blue band just inside the edge. The
+            // factor rises from 0 at the rim to a peak mid-band, then back to 0.
+            if (bevel > 0.0f && bary_min < GRAD_BEVEL_BARY) {
+                float bf = bary_min / GRAD_BEVEL_BARY;          // 0..1 across band
+                float tri = 1.0f - fabsf(bf * 2.0f - 1.0f);     // peak at band center
+                pixel = rgb565_lerp(pixel, bevel_color, bevel * tri);
             }
 
             uint16_t dst = row[x];

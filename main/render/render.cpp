@@ -26,9 +26,12 @@
 //
 // These are derived from the projected resting face but kept as tunables so the
 // layout never depends on glm (render.cpp stays host-testable).
-#define TRI_TOP_HW      116.0f   // half-width of the top edge (px)
-#define TRI_TOP_Y       (DISP_CY - 54)   // y of the top edge
-#define TRI_APEX_Y      (DISP_CY + 140)  // y of the bottom apex
+// Geometry of the locked, face-on front triangle as projected to the screen
+// (apex DOWN). Derived from PYRAMID_RADIUS=196 with focal=600: top edge near
+// y=144, apex near y=429, top half-width ~155px. Text is laid out inside this.
+#define TRI_TOP_HW      155.0f   // half-width of the top edge (px)
+#define TRI_TOP_Y       144      // y of the flat top edge
+#define TRI_APEX_Y      429      // y of the bottom apex
 // FONT_LINE_H is obtained at runtime from text_mb_line_height() (the Montserrat
 // Bold cell height) so render.cpp never reaches into the font header directly.
 
@@ -55,18 +58,25 @@ static float tri_half_width_at(float y)
     return half;
 }
 
-// Compute the usable pixel width for each of the RENDER_MAX_LINES text rows,
-// centered vertically on the face. Each line is inset by TRI_TEXT_MARGIN on
-// both sides.
-static void tri_line_widths(int widths[RENDER_MAX_LINES])
+// The y of the top of a text block of `nlines` lines, centered on TEXT_CENTER_Y.
+static int text_block_top(int nlines)
+{
+    int line_h = text_mb_line_height() + RENDER_LINE_GAP;
+    int total_h = nlines * line_h;
+    return TEXT_CENTER_Y - total_h / 2;
+}
+
+// Usable pixel width for each of `nlines` rows when the block is centered on
+// TEXT_CENTER_Y. Each line is measured at its own mid-y inside the apex-down
+// triangle and inset by TRI_TEXT_MARGIN both sides. Fills widths[0..nlines-1].
+static void tri_line_widths(int nlines, int widths[RENDER_MAX_LINES])
 {
     int font_line_h = text_mb_line_height();
     int line_h = font_line_h + RENDER_LINE_GAP;
-    int total = RENDER_MAX_LINES * line_h;
-    float y0 = (float)DISP_CY - (float)total * 0.5f;
+    int y0 = text_block_top(nlines);
 
-    for (int i = 0; i < RENDER_MAX_LINES; i++) {
-        float mid_y = y0 + (float)(i * line_h) + (float)font_line_h * 0.5f;
+    for (int i = 0; i < nlines; i++) {
+        float mid_y = (float)(y0 + i * line_h) + (float)font_line_h * 0.5f;
         float half = tri_half_width_at(mid_y);
         int w = (int)(half * 2.0f) - TRI_TEXT_MARGIN * 2;
         if (w < 20) {
@@ -139,15 +149,22 @@ int render_wrap(const char *s, const int line_widths[RENDER_MAX_LINES],
 
 static void render_text(fb_t *fb, const scene_t *sc)
 {
-    int widths[RENDER_MAX_LINES];
-    tri_line_widths(widths);
-
     char lines[RENDER_MAX_LINES][RENDER_MAX_LINE_LEN];
+    int widths[RENDER_MAX_LINES];
+
+    // Pass 1: wrap against widths laid out for the maximum number of lines
+    // (text sits high in the wide upper band) to discover how many lines we use.
+    tri_line_widths(RENDER_MAX_LINES, widths);
     int nlines = render_wrap(sc->text, widths, lines);
 
+    // Pass 2: now that we know nlines, lay the block out centered on
+    // TEXT_CENTER_Y, recompute each line's true width at its final y, and
+    // re-wrap so the wrap matches where the text actually sits.
+    tri_line_widths(nlines, widths);
+    nlines = render_wrap(sc->text, widths, lines);
+
     int line_h = text_mb_line_height() + RENDER_LINE_GAP;
-    int total_h = nlines * line_h;
-    int y0 = (int)sc->pyr_cy - total_h / 2;
+    int y0 = text_block_top(nlines);
 
     uint16_t color = rgb565(COL_TEXT_R, COL_TEXT_G, COL_TEXT_B);
 

@@ -215,15 +215,23 @@ void anim_apply(scene_t *sc, uint32_t state_ms, uint32_t dt_ms)
         sc->pyr_cy = lerpf(PYRAMID_START_Y, (float)DISP_CY, e);
         sc->pyr_scale = 1.0f;
         sc->pyr_alpha = (uint8_t)((float)COL_TRI_ALPHA * e);
-        sc->pyr_glow = 0.0f;              // no glow during tumble
+        sc->pyr_glow = 0.0f;              // no glow during the rise
         sc->text_alpha = 0;
 
-        // Accumulate spin, eased to zero as p -> 1.
-        float spin_factor = 1.0f - e;
-        float dt_s = (float)dt_ms / 1000.0f;
-        mat3_rotate_x(sc->pyr_rot, sc->pyr_rx_rate * spin_factor * dt_s);
-        mat3_rotate_y(sc->pyr_rot, sc->pyr_ry_rate * spin_factor * dt_s);
-        mat3_rotate_z(sc->pyr_rot, sc->pyr_rz_rate * spin_factor * dt_s);
+        // Gentle damped wobble around face-on (NOT a full tumble). Build the
+        // rotation absolutely each frame from identity so it stays mostly
+        // forward and only tilts a little to reveal the sides. The seeded
+        // per-answer rates act as wobble frequencies (varied + deterministic);
+        // amplitude decays with (1-e) so it settles face-on by the end.
+        float t_s = (float)state_ms / 1000.0f;
+        float decay = 1.0f - e;
+        float ax = WOBBLE_AMP * decay * sinf(sc->pyr_rx_rate * t_s * 6.2832f);
+        float ay = WOBBLE_AMP * decay * sinf(sc->pyr_ry_rate * t_s * 6.2832f + 1.7f);
+        float az = (WOBBLE_AMP * 0.4f) * decay * sinf(sc->pyr_rz_rate * t_s * 6.2832f);
+        mat3_identity(sc->pyr_rot);
+        mat3_rotate_x(sc->pyr_rot, ax);
+        mat3_rotate_y(sc->pyr_rot, ay);
+        mat3_rotate_z(sc->pyr_rot, az);
 
         sc->murk = (uint8_t)(220.0f * (1.0f - e));
         break;

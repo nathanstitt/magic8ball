@@ -41,6 +41,24 @@ static inline uint16_t rgb565_scale(uint16_t color, float intensity)
     return (uint16_t)((r << 11) | (g << 5) | b);
 }
 
+// Linear interpolate between two RGB565 colors. t: 0 = a, 1 = b (clamped).
+// Channels interpolated in 565 space.
+static inline uint16_t rgb565_lerp(uint16_t a, uint16_t b, float t)
+{
+    if (t < 0.0f) {
+        t = 0.0f;
+    }
+    if (t > 1.0f) {
+        t = 1.0f;
+    }
+    int ar = (a >> 11) & 0x1F, ag = (a >> 5) & 0x3F, ab = a & 0x1F;
+    int br = (b >> 11) & 0x1F, bg = (b >> 5) & 0x3F, bb = b & 0x1F;
+    int r = (int)(ar + (br - ar) * t + 0.5f);
+    int g = (int)(ag + (bg - ag) * t + 0.5f);
+    int b2 = (int)(ab + (bb - ab) * t + 0.5f);
+    return (uint16_t)((r << 11) | (g << 5) | b2);
+}
+
 // Add brightness (boost is an additive amount, typically 0..~3), clamping each
 // channel to its 5/6-bit max. For glow/specular brightening only.
 // boost is a fraction of full-channel range: add boost*31 to 5-bit channels and

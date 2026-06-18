@@ -61,9 +61,12 @@ TEST_CASE("background center is lit (gradient drawn) inside the circle", "[rende
     TEST_ASSERT_TRUE(fb_get_px(&fb, DISP_CX, DISP_CY) != 0);
 }
 
-TEST_CASE("murk darkens the background versus no murk", "[render]")
+TEST_CASE("murk strengthens the blue glow halo around the die", "[render]")
 {
-    int sx = DISP_CX + 120;
+    // New model: murk drives the blue glow halo (the liquid is lit more while
+    // thinking), so a point inside the halo gets a stronger blue channel as murk
+    // rises. Sample ~80px from center (well inside HALO_RADIUS), pyramid hidden.
+    int sx = DISP_CX + 80;
     int sy = DISP_CY;
 
     static uint16_t mem_clear[DISP_W * DISP_H];
@@ -90,9 +93,9 @@ TEST_CASE("murk darkens the background versus no murk", "[render]")
     render_frame(&fbm, &clouded);
     uint16_t px_murk = fb_get_px(&fbm, sx, sy);
 
-    int bri_clear = ((px_clear >> 11) & 0x1F) + ((px_clear >> 5) & 0x3F) + (px_clear & 0x1F);
-    int bri_murk = ((px_murk >> 11) & 0x1F) + ((px_murk >> 5) & 0x3F) + (px_murk & 0x1F);
-    TEST_ASSERT_TRUE(bri_murk < bri_clear);
+    int blue_clear = px_clear & 0x1F;
+    int blue_murk = px_murk & 0x1F;
+    TEST_ASSERT_TRUE(blue_murk > blue_clear);
 }
 
 TEST_CASE("answer text is actually drawn onto the frame", "[render]")

@@ -154,38 +154,59 @@ TEST_CASE("degenerate (zero-area) triangle draws nothing", "[draw]")
 }
 
 // ---------------------------------------------------------------------------
-// draw_triangle_lit
+// draw_triangle_gradient (radial die fill)
 // ---------------------------------------------------------------------------
 
-TEST_CASE("lit triangle with no glow/fresnel/spec paints the flat lit color", "[draw]")
+static int brightness565(uint16_t p)
 {
-    // With glow=fresnel=spec=0, every covered pixel is exactly lit_color
-    // blended at full alpha (= lit_color), not brightened.
+    return ((p >> 11) & 0x1F) + ((p >> 5) & 0x3F) + (p & 0x1F);
+}
+
+TEST_CASE("gradient triangle is brighter at the centroid than near the edge", "[draw]")
+{
+    // center_color is bright, edge_color is dark -> the deep interior (high
+    // bary_min) must be brighter than a pixel just inside an edge.
+    static uint16_t mem[80 * 80];
+    fb_t fb;
+    fb_init(&fb, mem, 80, 80);
+    fb_clear(&fb, rgb565(0, 0, 0));
+    uint16_t center = rgb565(70, 120, 255);
+    uint16_t edge = rgb565(8, 18, 95);
+    // Bevel off (strength 0) so this isolates the radial fill.
+    draw_triangle_gradient(&fb, 40, 6, 6, 72, 72, 72, center, edge, edge, 0.0f, 255);
+    // Centroid ~ (39,50).
+    uint16_t centroid = fb_get_px(&fb, 39, 50);
+    // Near the bottom edge (low bary_min).
+    uint16_t near_edge = fb_get_px(&fb, 39, 70);
+    TEST_ASSERT_TRUE(brightness565(centroid) > brightness565(near_edge));
+}
+
+TEST_CASE("gradient centroid approaches the center color", "[draw]")
+{
+    static uint16_t mem[80 * 80];
+    fb_t fb;
+    fb_init(&fb, mem, 80, 80);
+    fb_clear(&fb, rgb565(0, 0, 0));
+    uint16_t center = rgb565(70, 120, 255);
+    uint16_t edge = rgb565(8, 18, 95);
+    draw_triangle_gradient(&fb, 40, 6, 6, 72, 72, 72, center, edge, edge, 0.0f, 255);
+    uint16_t centroid = fb_get_px(&fb, 39, 50);
+    // The centroid (bary_min ~ 0.33 >= GRAD_CENTER_BARY) should be at/near full
+    // center brightness, clearly above the edge color.
+    TEST_ASSERT_TRUE(brightness565(centroid) > brightness565(edge) + 10);
+}
+
+TEST_CASE("gradient triangle alpha 0 leaves the background untouched", "[draw]")
+{
     static uint16_t mem[40 * 40];
     fb_t fb;
     fb_init(&fb, mem, 40, 40);
-    fb_clear(&fb, rgb565(0, 0, 0));
-    uint16_t lit = rgb565(24, 40, 150);
-    draw_triangle_lit(&fb, 20, 4, 4, 36, 36, 36, lit, 255, 0.0f, 0.0f, 0.0f);
-    // Deep interior pixel equals lit color (edge_t ~ 0 there, no additive).
-    TEST_ASSERT_EQUAL_HEX16(lit, fb_get_px(&fb, 20, 28));
-}
-
-TEST_CASE("lit triangle glow brightens edges more than the interior", "[draw]")
-{
-    static uint16_t mem[60 * 60];
-    fb_t fb;
-    fb_init(&fb, mem, 60, 60);
-    fb_clear(&fb, rgb565(0, 0, 0));
-    uint16_t lit = rgb565(24, 40, 150);
-    // glow on; an edge pixel should be brighter than a deep-interior pixel.
-    draw_triangle_lit(&fb, 30, 5, 5, 54, 54, 54, lit, 255, 0.0f, 0.0f, 1.0f);
-    uint16_t interior = fb_get_px(&fb, 30, 40);
-    // A pixel right against the bottom edge.
-    uint16_t edge = fb_get_px(&fb, 30, 53);
-    int bri_interior = ((interior >> 11) & 0x1F) + ((interior >> 5) & 0x3F) + (interior & 0x1F);
-    int bri_edge = ((edge >> 11) & 0x1F) + ((edge >> 5) & 0x3F) + (edge & 0x1F);
-    TEST_ASSERT_TRUE(bri_edge > bri_interior);
+    fb_clear(&fb, rgb565(3, 5, 9));
+    uint16_t center = rgb565(70, 120, 255);
+    uint16_t edge = rgb565(8, 18, 95);
+    draw_triangle_gradient(&fb, 20, 4, 4, 36, 36, 36, center, edge, edge, 0.5f, 0);
+    // Centroid pixel must still be the original background (alpha 0 = no change).
+    TEST_ASSERT_EQUAL_HEX16(rgb565(3, 5, 9), fb_get_px(&fb, 19, 24));
 }
 
 // ---------------------------------------------------------------------------
