@@ -2,6 +2,7 @@
 #include "animation.h"
 #include "config.h"
 #include <math.h>
+#include <stddef.h>   // size_t
 
 // Distance beyond the visible circle where the triangle's entry point sits, so
 // it slides in fully from off-screen.
@@ -54,6 +55,22 @@ void sm_init(sm_t *sm, rng_fn rng)
     anim_seed_particles(&sm->scene);
 }
 
+void sm_trigger_message(sm_t *sm, const char *text)
+{
+    // Copy by hand (mirrors sm_init's manual loop; avoids depending on libc here)
+    // and hard-truncate to the buffer. net.cpp already sanitized + truncated, so
+    // this is a safety net.
+    size_t i = 0;
+    if (text) {
+        for (; text[i] && i < (size_t)(NET_MSG_MAX - 1); i++) {
+            sm->custom_text[i] = text[i];
+        }
+    }
+    sm->custom_text[i] = '\0';
+    sm->has_custom = true;
+    enter(sm, ST_SHAKING);   // resets state_ms/quiet_ms/answer_chosen
+}
+
 void sm_tick(sm_t *sm, event_t ev, uint32_t dt_ms)
 {
     sm->state_ms += dt_ms;
@@ -62,6 +79,7 @@ void sm_tick(sm_t *sm, event_t ev, uint32_t dt_ms)
     switch (sc->state) {
     case ST_IDLE:
         if (ev == EV_TAP || ev == EV_SHAKE) {
+            sm->has_custom = false;
             enter(sm, ST_SHAKING);
         } else if (sm->state_ms >= IDLE_SLEEP_MS) {
             enter(sm, ST_SLEEP);
@@ -70,6 +88,7 @@ void sm_tick(sm_t *sm, event_t ev, uint32_t dt_ms)
 
     case ST_SLEEP:
         if (ev == EV_TAP || ev == EV_SHAKE) {
+            sm->has_custom = false;
             enter(sm, ST_SHAKING);
         }
         break;
@@ -88,7 +107,16 @@ void sm_tick(sm_t *sm, event_t ev, uint32_t dt_ms)
         }
         // Tumble when shaking has stopped (debounced) AND think minimum elapsed.
         if (sm->state_ms >= THINK_MIN_MS && sm->quiet_ms >= SHAKE_DEBOUNCE_MS) {
-            sc->text = answers_get(sm->answer_index);
+            // A custom (network) message shows its own text; otherwise reveal the
+            // answer picked above. answers_pick still ran for a custom ask, which
+            // is harmless and keeps the per-ask tumble seed (hashed from
+            // answer_index in enter(ST_TUMBLING)) varied.
+            if (sm->has_custom) {
+                sc->text = sm->custom_text;
+            } else {
+                sc->text = answers_get(sm->answer_index);
+            }
+            sc->text_seq++;   // distinguish this ask from the last (see scene.h)
             enter(sm, ST_TUMBLING);
         }
         break;
@@ -108,8 +136,23 @@ void sm_tick(sm_t *sm, event_t ev, uint32_t dt_ms)
         break;
 
     case ST_SHOWING:
-        if (ev == EV_TAP || ev == EV_SHAKE) {
+        // A tap dismisses the answer (fade back to dark liquid); a shake asks
+        // again (the natural "shake the 8 ball" gesture starts a new answer).
+        if (ev == EV_TAP) {
+            enter(sm, ST_DISMISSING);
+        } else if (ev == EV_SHAKE) {
+            sm->has_custom = false;
             enter(sm, ST_SHAKING);
+        }
+        break;
+
+    case ST_DISMISSING:
+        // Fading out. A shake restarts immediately; otherwise fade then idle.
+        if (ev == EV_SHAKE) {
+            sm->has_custom = false;
+            enter(sm, ST_SHAKING);
+        } else if (sm->state_ms >= DISMISS_MS) {
+            enter(sm, ST_IDLE);
         }
         break;
     }

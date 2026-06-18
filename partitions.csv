@@ -1,0 +1,12 @@
+# Magic 8 Ball — custom 16MB partition table (device verified 16MB via esptool).
+# OTA-ready: two app slots sized to match factory so any built image fits any slot.
+# Bootloader lives at 0x0 and the partition table at 0x8000, so the first usable
+# partition starts at 0x9000.
+# Name,   Type, SubType,  Offset,   Size,    Flags
+nvs,      data, nvs,      0x9000,   0x6000,
+phy_init, data, phy,      0xf000,   0x1000,
+factory,  app,  factory,  0x10000,  0x300000,
+ota_0,    app,  ota_0,    0x310000, 0x300000,
+ota_1,    app,  ota_1,    0x610000, 0x300000,
+otadata,  data, ota,      0x910000, 0x2000,
+storage,  data, nvs,      0x912000, 0x10000,

@@ -9,3 +9,6 @@ dependencies:
     version: "*"
   andresragot/glm:
     version: "^1.0.3"
+  # mDNS so the device is reachable at http://magic8ball.local/message.
+  espressif/mdns:
+    version: "^1.2.0"

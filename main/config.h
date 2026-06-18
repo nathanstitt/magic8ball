@@ -22,6 +22,7 @@
 #define IDLE_SLEEP_MS       30000
 #define TUMBLE_MS           1400    // ST_TUMBLING duration (rise + spin)
 #define LOCK_MS             350     // ST_LOCKING duration (snap face-on, glow bloom, text fade)
+#define DISMISS_MS          300     // ST_DISMISSING duration (tap to fade the answer back to liquid)
 
 // --- IMU ---
 // Acceleration magnitude in milli-g (1000 = 1g). A vigorous shake exceeds ~1500.
@@ -99,10 +100,18 @@
 #define RENDER_MAX_LINE_LEN  32
 #define TRI_TEXT_MARGIN      16    // px inset from triangle edge to text bounding column
 #define RENDER_LINE_GAP      2     // px between wrapped lines
-// Vertical center of the answer text block. Sits in the wide upper-middle of
-// the apex-down triangle (top edge ~144, apex ~429) for max room, like the
-// reference where text hugs the top and the apex stays empty.
-#define TEXT_CENTER_Y        222
+// Vertical center of the answer text block. Sits HIGH in the apex-down triangle
+// (top edge ~144, apex ~429) so a tall multi-line answer stays in the wide upper
+// band and its lower lines don't run into the narrowing apex (where they'd be
+// clipped). The apex stays empty, like the reference.
+#define TEXT_CENTER_Y        196
+
+// --- Network / custom message ---
+// Max bytes (incl. NUL) of a custom message POSTed over the network and shown in
+// place of a random answer. ~70 ASCII chars realistically fit the triangle (4
+// lines, Montserrat Bold); 96 leaves headroom. Sized into sm_t.custom_text and
+// the net_msg_t hand-off payload, so the two must agree (see net/net.h).
+#define NET_MSG_MAX     96
 
 // --- Colors (R, G, B — 0..255) ---
 // Background liquid: near-black, faint blue lift toward the center.
@@ -133,3 +142,10 @@
 #define COL_TEXT_R     205
 #define COL_TEXT_G     215
 #define COL_TEXT_B     235
+// Status overlay (Wi-Fi IP / setup hint) — dim grey-blue HUD line near the
+// bottom, drawn with the small 8x8 font so it reads as utility, not the answer.
+#define COL_STATUS_R   120
+#define COL_STATUS_G   140
+#define COL_STATUS_B   170
+#define STATUS_ALPHA   160     // 0..255 blend; kept low so it doesn't fight the glow
+#define STATUS_MARGIN_Y 18     // px from the bottom of the status text to DISP_H

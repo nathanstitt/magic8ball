@@ -14,7 +14,12 @@ idf_component_register(
         "hal/imu.cpp"
         "hal/touch.cpp"
         "hal/power.cpp"
-    INCLUDE_DIRS "." "scene" "gfx" "render" "hal"
+        "net/net.cpp"
+        "net/provcfg.cpp"
+        "net/wifi.cpp"
+        "net/http_server.cpp"
+        "net/captive_dns.cpp"
+    INCLUDE_DIRS "." "scene" "gfx" "render" "hal" "net"
     REQUIRES
         esp_driver_i2c
         esp_timer
@@ -24,6 +29,14 @@ idf_component_register(
         waveshare__esp_lcd_touch_cst9217
         espressif__esp_lcd_touch
         glm
+        # Networking: WiFi STA/AP, captive portal, POST listener, mDNS.
+        esp_wifi
+        esp_event
+        esp_netif
+        nvs_flash
+        esp_http_server
+        lwip
+        mdns
 )
 
 # Allow C++ in firmware (glm requires C++14 minimum). Pure-C files (framebuffer.c)

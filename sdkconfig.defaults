@@ -1,3 +1,6 @@
+# Board is ESP32-S3. Pin the target here so a regenerated sdkconfig (e.g. after
+# deleting it to pick up new defaults) doesn't fall back to the esp32 default.
+CONFIG_IDF_TARGET="esp32s3"
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 CONFIG_FREERTOS_HZ=1000
 CONFIG_SPIRAM=y
@@ -8,3 +11,9 @@ CONFIG_COMPILER_CXX_EXCEPTIONS=n
 CONFIG_COMPILER_CXX_RTTI=n
 # -Werror kept on; one statement per line
 CONFIG_COMPILER_WARN_WRITE_STRINGS=y
+# Device has 16MB flash (verified via esptool flash_id). Use a custom OTA-ready
+# partition table (partitions.csv) instead of the 2MB single-app default.
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"

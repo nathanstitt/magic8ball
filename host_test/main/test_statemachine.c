@@ -122,11 +122,30 @@ TEST_CASE("idle long enough goes to sleep; shake wakes it", "[sm]")
     TEST_ASSERT_EQUAL_INT(ST_SHAKING, sm_state(&sm));
 }
 
-TEST_CASE("tap while showing starts a new ask", "[sm]")
+TEST_CASE("tap while showing dismisses the answer back to idle", "[sm]")
 {
     sm_t sm = make_sm();
     run_to_showing(&sm);
     sm_tick(&sm, EV_TAP, 16);
+    TEST_ASSERT_EQUAL_INT(ST_DISMISSING, sm_state(&sm));
+    sm_tick(&sm, EV_NONE, DISMISS_MS + 50);   // fade completes
+    TEST_ASSERT_EQUAL_INT(ST_IDLE, sm_state(&sm));
+}
+
+TEST_CASE("shake while showing starts a new ask", "[sm]")
+{
+    sm_t sm = make_sm();
+    run_to_showing(&sm);
+    sm_tick(&sm, EV_SHAKE, 16);
+    TEST_ASSERT_EQUAL_INT(ST_SHAKING, sm_state(&sm));
+}
+
+TEST_CASE("shake during dismiss restarts immediately", "[sm]")
+{
+    sm_t sm = make_sm();
+    run_to_showing(&sm);
+    sm_tick(&sm, EV_TAP, 16);                  // -> DISMISSING
+    sm_tick(&sm, EV_SHAKE, 16);                // shake interrupts the fade
     TEST_ASSERT_EQUAL_INT(ST_SHAKING, sm_state(&sm));
 }
 

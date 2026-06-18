@@ -197,6 +197,18 @@ void render_frame(fb_t *fb, const scene_t *sc)
     // 5. Glass arc highlight.
     fx_draw_glass_arc(fb);
 
-    // 6. Circle clip (must be last).
+    // 6. Circle clip (must be last for the scene).
     fx_draw_circle_clip(fb);
+
+    // 7. Status overlay (Wi-Fi IP / setup hint), drawn AFTER the clip but well
+    // inside the circle, so the clip doesn't erase it. Small, dim, monochrome
+    // 8x8 bitmap font — utility text, deliberately not the themed answer font.
+    if (sc->status != NULL && sc->status[0] != '\0') {
+        int size = 2;                       // 8x8 * 2 = 16px tall
+        int w = text_width(sc->status, size);
+        int x = DISP_CX - w / 2;
+        int y = DISP_H - 8 * size - STATUS_MARGIN_Y;
+        uint16_t col = rgb565(COL_STATUS_R, COL_STATUS_G, COL_STATUS_B);
+        text_draw(fb, sc->status, x, y, size, col, STATUS_ALPHA);
+    }
 }

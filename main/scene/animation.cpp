@@ -292,6 +292,22 @@ void anim_apply(scene_t *sc, uint32_t state_ms, uint32_t dt_ms)
         sc->murk = 0;
         mat3_identity(sc->pyr_rot);
         break;
+
+    case ST_DISMISSING: {
+        // Fade the locked, face-on die + its text out to nothing as the liquid
+        // clouds back over. Holds position; only the alphas/glow/murk move.
+        float p = clamp01((float)state_ms / (float)DISMISS_MS);
+        float f = 1.0f - p;                       // 1 -> 0
+        sc->pyr_cx = (float)DISP_CX;
+        sc->pyr_cy = (float)DISP_CY;
+        sc->pyr_scale = 1.0f;
+        sc->pyr_alpha = (uint8_t)(255.0f * f);
+        sc->pyr_glow = f;
+        sc->text_alpha = (uint8_t)(255.0f * f);
+        sc->murk = (uint8_t)(40.0f * p);          // ease back toward the idle murk
+        mat3_identity(sc->pyr_rot);
+        break;
+    }
     }
 }
 

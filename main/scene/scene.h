@@ -9,10 +9,11 @@ extern "C" {
 typedef enum {
     ST_IDLE,
     ST_SHAKING,
-    ST_TUMBLING,   // pyramid rising + spinning
-    ST_LOCKING,    // rotation decelerating to face-on, glow blooming
-    ST_SHOWING,    // locked, text fully visible
+    ST_TUMBLING,    // pyramid rising + spinning
+    ST_LOCKING,     // rotation decelerating to face-on, glow blooming
+    ST_SHOWING,     // locked, text fully visible
     ST_SLEEP,
+    ST_DISMISSING,  // tap dismissed the answer: triangle + text fade back to liquid
 } state_t;
 
 typedef struct {
@@ -59,6 +60,18 @@ typedef struct {
 
     // Answer.
     const char *text;
+    // Bumped whenever `text` is (re)pointed. The render core's static-frame-skip
+    // memcmp's the whole scene_t including the `text` POINTER value; two distinct
+    // custom messages can reuse the same backing buffer (so the pointer is
+    // identical), which could wrongly skip a redraw when only the bytes change.
+    // This counter rides along in that memcmp and guarantees a new ask differs.
+    uint32_t    text_seq;
+
+    // Optional bottom status overlay (Wi-Fi IP / setup hint), drawn small and dim
+    // by the renderer. NULL = nothing to show. Set by app_main from the net layer
+    // AFTER the scene is copied from the state machine — the state machine never
+    // touches it, so scene/ stays networking-free and host-testable.
+    const char *status;
 
     // Particles.
     particle_t particles[SCENE_MAX_PARTICLES];

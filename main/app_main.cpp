@@ -28,6 +28,7 @@
 #include "hal/imu.h"
 #include "hal/touch.h"
 #include "hal/power.h"
+#include "net/net.h"
 
 static const char *TAG = "magic8";
 
@@ -53,6 +54,11 @@ static void task_logic(void *arg)
     int64_t last_us = esp_timer_get_time();
     state_t prev_state = sm_state(&sm);
 
+    // A network message held until the scene is restful enough to play it (so we
+    // never abort a running animation). Newest wins.
+    net_msg_t pending_msg;
+    bool have_pending = false;
+
     while (true) {
         int64_t now_us = esp_timer_get_time();
         uint32_t dt_ms = (uint32_t)((now_us - last_us) / 1000);
@@ -61,12 +67,33 @@ static void task_logic(void *arg)
             dt_ms = 1;
         }
 
+        // Drain the newest inbound network message (non-blocking). Replacing any
+        // older held message keeps "latest wins" even if one was waiting.
+        net_msg_t inbound;
+        if (net_poll_message(&inbound)) {
+            pending_msg = inbound;
+            have_pending = true;
+        }
+
         event_t ev = EV_NONE;
         if (s_have_touch && touch_was_tapped()) {
             ev = EV_TAP;
         }
         if (s_have_imu && imu_is_shaking()) {
             ev = EV_SHAKE;
+        }
+
+        // Inject a held message only from a restful state and only when the user
+        // isn't physically interacting this tick (a real tap/shake wins; the
+        // message waits one more 1ms tick). Treating ST_SLEEP as restful gives
+        // wake-on-message for free: sm_trigger_message does SLEEP->SHAKING, and
+        // the panel-power transition below re-enables the display next tick.
+        if (have_pending && ev == EV_NONE) {
+            state_t st = sm_state(&sm);
+            if (st == ST_IDLE || st == ST_SHOWING || st == ST_SLEEP) {
+                sm_trigger_message(&sm, pending_msg.text);
+                have_pending = false;
+            }
         }
 
         sm_tick(&sm, ev, dt_ms);
@@ -82,9 +109,13 @@ static void task_logic(void *arg)
             prev_state = st;
         }
 
-        // Publish the latest scene for the render core.
+        // Publish the latest scene for the render core. The status overlay
+        // pointer is set here (post-copy) rather than in the state machine, so
+        // scene/ stays networking-free: net_status_line() returns a stable,
+        // never-freed string (or NULL).
         xSemaphoreTake(s_scene_mtx, portMAX_DELAY);
         memcpy(&s_shared_scene, sm_scene(&sm), sizeof(scene_t));
+        s_shared_scene.status = net_status_line();
         xSemaphoreGive(s_scene_mtx);
 
         vTaskDelay(pdMS_TO_TICKS(1));
@@ -213,8 +244,16 @@ extern "C" void app_main(void)
     memset(&s_shared_scene, 0, sizeof(scene_t));
     s_shared_scene.state = ST_IDLE;
 
-    // Logic on core 0, render on core 1.
-    xTaskCreatePinnedToCore(task_logic, "logic", 4096, NULL, 5, NULL, 0);
+    // Bring up networking (Wi-Fi STA with captive-portal fallback, POST listener,
+    // mDNS). Non-fatal: if it can't start, the ball still answers taps/shakes.
+    if (net_init() != 0) {
+        ESP_LOGW(TAG, "networking unavailable - offline (taps/shakes still work)");
+    }
+
+    // Logic on core 0, render on core 1. Logic holds an sm_t (a full scene_t,
+    // plus the custom-message buffer) and two net_msg_t locals on its stack, so
+    // give it headroom beyond the original 4096.
+    xTaskCreatePinnedToCore(task_logic, "logic", 6144, NULL, 5, NULL, 0);
     xTaskCreatePinnedToCore(task_render, "render", 8192, NULL, 5, NULL, 1);
 
     vTaskDelete(NULL);
