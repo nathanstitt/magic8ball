@@ -1,0 +1,26 @@
+idf_component_register(
+    SRCS
+        "test_main.c"
+        "test_framebuffer.c"
+        "test_draw.c"
+        "test_answers.c"
+        "test_statemachine.c"
+        "test_animation.c"
+        "test_render.c"
+        "../../main/gfx/framebuffer.c"
+        "../../main/gfx/draw.cpp"
+        "../../main/gfx/text.cpp"
+        "../../main/scene/answers.cpp"
+        "../../main/scene/statemachine.cpp"
+        "../../main/scene/animation.cpp"
+        "../../main/render/render.cpp"
+        "../../main/render/fx.cpp"
+    INCLUDE_DIRS
+        "."
+        "../../main"
+        "../../main/gfx"
+        "../../main/scene"
+        "../../main/render"
+    REQUIRES unity
+    WHOLE_ARCHIVE
+)

@@ -1,0 +1,11 @@
+## IDF Component Manager Manifest File
+##
+## We deliberately do NOT declare lvgl here. The Waveshare BSP depends on
+## lvgl/lvgl + esp_lvgl_port transitively, so those components are still
+## downloaded and compiled — but none of OUR code includes lvgl.h or calls any
+## lv_* function. The renderer is a pure software RGB565 pipeline.
+dependencies:
+  waveshare/esp32_s3_touch_amoled_1_75:
+    version: "*"
+  andresragot/glm:
+    version: "^1.0.3"

@@ -1,0 +1,13 @@
+build/
+sdkconfig
+sdkconfig.old
+*.o
+.DS_Store
+managed_components/
+dependencies.lock
+.cache/
+compile_commands.json
+host_test/build/
+host_test/sdkconfig
+host_test/managed_components/
+host_test/dependencies.lock
