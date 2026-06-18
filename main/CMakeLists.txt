@@ -19,6 +19,7 @@ idf_component_register(
         esp_driver_i2c
         esp_timer
         esp_lcd
+        esp_mm
         waveshare__esp32_s3_touch_amoled_1_75
         waveshare__esp_lcd_touch_cst9217
         espressif__esp_lcd_touch
