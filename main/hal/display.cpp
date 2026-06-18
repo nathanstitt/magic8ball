@@ -72,21 +72,37 @@ uint16_t *display_back_buffer(void)
     return s_fb[s_cur ^ 1];  // render into the buffer NOT currently shown
 }
 
+// Flush the back buffer to the panel in horizontal strips. A full-frame
+// (466*466*2 = 434 KB) single QSPI transfer exhausts the SPI DMA descriptor
+// pool (ESP_ERR_NO_MEM), so we send DISP_FLUSH_STRIPS bands per frame. Each
+// band is a separate async transfer; we wait for its DMA-done callback before
+// issuing the next, then swap once the whole frame has shipped.
+#define DISP_FLUSH_STRIPS   8
+#define STRIP_ROWS          ((DISP_H + DISP_FLUSH_STRIPS - 1) / DISP_FLUSH_STRIPS)
+
 void display_flush_and_swap(void)
 {
-    esp_err_t ret = esp_lcd_panel_draw_bitmap(s_panel, 0, 0, DISP_W, DISP_H, s_fb[s_cur ^ 1]);
-    if (ret != ESP_OK) {
-        // No transfer was started, so no callback will fire. Log and still
-        // swap so rendering never freezes.
-        ESP_LOGW(TAG, "draw_bitmap failed: %s", esp_err_to_name(ret));
-        s_cur ^= 1;
-        return;
+    uint16_t *buf = s_fb[s_cur ^ 1];
+
+    for (int y = 0; y < DISP_H; y += STRIP_ROWS) {
+        int y_end = y + STRIP_ROWS;
+        if (y_end > DISP_H) {
+            y_end = DISP_H;
+        }
+        const uint16_t *strip = buf + (size_t)y * DISP_W;
+        esp_err_t ret = esp_lcd_panel_draw_bitmap(s_panel, 0, y, DISP_W, y_end, strip);
+        if (ret != ESP_OK) {
+            // No transfer started -> no callback will fire for this strip.
+            ESP_LOGW(TAG, "draw_bitmap strip y=%d failed: %s", y, esp_err_to_name(ret));
+            continue;
+        }
+        // draw_bitmap is async over QSPI: wait for this strip's DMA completion
+        // before issuing the next. 100ms timeout so a missed callback never hangs.
+        if (xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(100)) != pdTRUE) {
+            ESP_LOGW(TAG, "flush DMA wait timed out (strip y=%d)", y);
+        }
     }
-    // draw_bitmap is async over QSPI: wait for DMA completion before swapping.
-    // Use a 100ms timeout and proceed regardless so a missed callback never hangs.
-    if (xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(100)) != pdTRUE) {
-        ESP_LOGW(TAG, "flush DMA wait timed out");
-    }
+
     s_cur ^= 1;
 }
 
