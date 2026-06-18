@@ -2,54 +2,98 @@
 #include "../config.h"
 #include "../gfx/color.h"
 #include "../gfx/draw.h"
+#include "esp_heap_caps.h"
+#include "esp_log.h"
 #include <math.h>
 #include <stddef.h>
+#include <string.h>
 
 // Radius (px) out to which the blue glow halo around the die fades to nothing.
 #define HALO_RADIUS   220.0f
 
-// Background: near-black liquid with a soft blue glow halo centered on the die
-// (reference look). `murk` (0..255) drives how strong the halo is — clouded
-// during the shake/think, clearing as the answer locks in. No full-screen fog.
-void fx_draw_background(fb_t *fb, uint8_t murk)
+static const char *FX_TAG = "fx";
+
+// The complete background (radial gradient + a fixed-strength blue halo around
+// the die) is baked ONCE into s_bg at fx_init(). The per-frame background is
+// then just a memcpy — no sqrt, no per-pixel blend (it was costing ~0.5s/frame
+// of sqrt, and a full-screen blend even after that).
+static uint16_t *s_bg = NULL;
+
+// Fixed halo strength (0..256 fixed point) baked into the static background.
+#define HALO_BAKE_STRENGTH  200
+
+void fx_init(void)
 {
-    uint16_t bg_center = rgb565(COL_BG_CTR_R, COL_BG_CTR_G, COL_BG_CTR_B);
-    uint16_t bg_edge = rgb565(COL_BG_EDGE_R, COL_BG_EDGE_G, COL_BG_EDGE_B);
+    size_t npx = (size_t)DISP_W * DISP_H;
+    s_bg = (uint16_t *)heap_caps_malloc(npx * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+    if (!s_bg) {
+        ESP_LOGE(FX_TAG, "fx precompute alloc failed");
+        return;
+    }
+    uint16_t halo_color = rgb565(COL_HALO_R, COL_HALO_G, COL_HALO_B);
 
-    // Base near-black radial gradient (cheap, one pass).
-    draw_radial_gradient(fb, DISP_CX, DISP_CY, DISP_RADIUS, bg_center, bg_edge);
-
-    // Additive blue halo around the die center. Brightest in a ring near the
-    // die, fading to nothing by HALO_RADIUS. Strength scales with murk so the
-    // liquid looks lit/agitated while thinking and calm (faint) when showing.
-    int hr = (int)(COL_HALO_R);
-    int hg = (int)(COL_HALO_G);
-    int hb = (int)(COL_HALO_B);
-    float murk_f = (float)murk / 255.0f;
-    float base_glow = 0.35f + 0.65f * murk_f;   // always a little halo, more while clouded
+    int cr = (COL_BG_CTR_R >> 3), cg = (COL_BG_CTR_G >> 2), cb = (COL_BG_CTR_B >> 3);
+    int er = (COL_BG_EDGE_R >> 3), eg = (COL_BG_EDGE_G >> 2), eb = (COL_BG_EDGE_B >> 3);
+    float inv_r = 1.0f / (float)DISP_RADIUS;
     float inv_halo = 1.0f / HALO_RADIUS;
+    static const int bayer[2][2] = {{0, 2}, {3, 1}};
 
-    for (int y = 0; y < fb->h; y++) {
-        uint16_t *prow = fb->px + (size_t)y * fb->w;
+    for (int y = 0; y < DISP_H; y++) {
         float dy = (float)(y - DISP_CY);
-        for (int x = 0; x < fb->w; x++) {
+        for (int x = 0; x < DISP_W; x++) {
             float dx = (float)(x - DISP_CX);
-            float d = sqrtf(dx * dx + dy * dy) * inv_halo;
-            if (d >= 1.0f) {
-                continue;
+            float dist = sqrtf(dx * dx + dy * dy);
+            size_t i = (size_t)y * DISP_W + x;
+
+            // Base radial gradient.
+            float d = dist * inv_r;
+            if (d > 1.0f) {
+                d = 1.0f;
             }
-            // Smooth falloff: 1 at center -> 0 at HALO_RADIUS (raised for a
-            // softer, rounder glow).
-            float f = 1.0f - d;
-            f = f * f;
-            uint8_t a = (uint8_t)(base_glow * f * 255.0f);
-            if (a == 0) {
-                continue;
+            float dith = (float)(bayer[y & 1][x & 1] - 1) * 0.06f;
+            float t = d + dith;
+            if (t < 0.0f) {
+                t = 0.0f;
             }
-            uint16_t halo = rgb565((uint8_t)hr, (uint8_t)hg, (uint8_t)hb);
-            prow[x] = rgb565_blend(prow[x], halo, a);
+            if (t > 1.0f) {
+                t = 1.0f;
+            }
+            int r = (int)(cr + (er - cr) * t + 0.5f);
+            int g = (int)(cg + (eg - cg) * t + 0.5f);
+            int b = (int)(cb + (eb - cb) * t + 0.5f);
+            uint16_t px = (uint16_t)((r << 11) | (g << 5) | b);
+
+            // Bake the halo in at a fixed strength.
+            float hd = dist * inv_halo;
+            if (hd < 1.0f) {
+                float f = 1.0f - hd;
+                f = f * f;
+                uint8_t a = (uint8_t)((int)(f * 255.0f) * HALO_BAKE_STRENGTH >> 8);
+                if (a > 0) {
+                    px = rgb565_blend(px, halo_color, a);
+                }
+            }
+            s_bg[i] = px;
         }
     }
+    ESP_LOGI(FX_TAG, "fx background baked");
+}
+
+// Background: a fast memcpy of the fully precomputed gradient+halo. `murk` is
+// no longer used (the halo is baked at a fixed strength for performance).
+void fx_draw_background(fb_t *fb, uint8_t murk)
+{
+    (void)murk;
+    size_t npx = (size_t)fb->w * fb->h;
+
+    if (!s_bg) {
+        uint16_t edge = rgb565(COL_BG_EDGE_R, COL_BG_EDGE_G, COL_BG_EDGE_B);
+        for (size_t i = 0; i < npx; i++) {
+            fb->px[i] = edge;
+        }
+        return;
+    }
+    memcpy(fb->px, s_bg, npx * sizeof(uint16_t));
 }
 
 void fx_draw_particles(fb_t *fb, const scene_t *sc)

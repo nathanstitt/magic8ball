@@ -196,19 +196,32 @@ void draw_triangle_glow(fb_t *fb, int x0, int y0, int x1, int y1, int x2, int y2
     }
     float inv_md = 1.0f / max_dist;
 
+    // Per-edge signed outside-distance d_e is linear in (x,y). Step it
+    // incrementally instead of calling edge_fn (6 mults) every pixel:
+    //   d_e = (-sgn / len_e) * edge_fn_e(x,y)
+    //   edge_fn_e increases by (b.y - a.y) per +1 x, and by -(b.x - a.x) per +1 y.
+    float k0 = -sgn / len0;
+    float k1 = -sgn / len1;
+    float k2 = -sgn / len2;
+    float dx0 = k0 * (float)(y2 - y1);   // d0 per +1 x
+    float dx1 = k1 * (float)(y0 - y2);
+    float dx2 = k2 * (float)(y1 - y0);
+    float dy0 = k0 * (float)(-(x2 - x1)); // d0 per +1 y
+    float dy1 = k1 * (float)(-(x0 - x2));
+    float dy2 = k2 * (float)(-(x1 - x0));
+
+    // d_e at the top-left of the scan box (minx, miny).
+    float row_d0 = k0 * (float)edge_fn(x1, y1, x2, y2, minx, miny);
+    float row_d1 = k1 * (float)edge_fn(x2, y2, x0, y0, minx, miny);
+    float row_d2 = k2 * (float)edge_fn(x0, y0, x1, y1, minx, miny);
+
     for (int y = miny; y <= maxy; y++) {
         uint16_t *row = fb->px + (size_t)y * fb->w;
+        float d0 = row_d0;
+        float d1 = row_d1;
+        float d2 = row_d2;
         for (int x = minx; x <= maxx; x++) {
-            // Signed perpendicular distance outside each edge (positive = the
-            // pixel is on the outside of that edge).
-            float d0 = -sgn * (float)edge_fn(x1, y1, x2, y2, x, y) / len0;
-            float d1 = -sgn * (float)edge_fn(x2, y2, x0, y0, x, y) / len1;
-            float d2 = -sgn * (float)edge_fn(x0, y0, x1, y1, x, y) / len2;
-            // Inside the triangle on all edges -> leave it for the fill.
-            if (d0 <= 0.0f && d1 <= 0.0f && d2 <= 0.0f) {
-                continue;
-            }
-            // Distance to the triangle ~ the largest outside-distance.
+            // Largest outside-distance; <=0 on all edges means inside -> skip.
             float dist = d0;
             if (d1 > dist) {
                 dist = d1;
@@ -216,18 +229,21 @@ void draw_triangle_glow(fb_t *fb, int x0, int y0, int x1, int y1, int x2, int y2
             if (d2 > dist) {
                 dist = d2;
             }
-            if (dist >= max_dist) {
-                continue;
+            if (dist > 0.0f && dist < max_dist) {
+                float f = 1.0f - dist * inv_md;
+                f = f * f;
+                uint8_t a = (uint8_t)((float)peak_alpha * f);
+                if (a != 0) {
+                    row[x] = rgb565_blend(row[x], color, a);
+                }
             }
-            // Smooth quadratic falloff: 1 at the edge -> 0 at max_dist.
-            float f = 1.0f - dist * inv_md;
-            f = f * f;
-            uint8_t a = (uint8_t)((float)peak_alpha * f);
-            if (a == 0) {
-                continue;
-            }
-            row[x] = rgb565_blend(row[x], color, a);
+            d0 += dx0;
+            d1 += dx1;
+            d2 += dx2;
         }
+        row_d0 += dy0;
+        row_d1 += dy1;
+        row_d2 += dy2;
     }
 }
 

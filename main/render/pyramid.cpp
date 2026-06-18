@@ -61,12 +61,21 @@ void pyramid_render(fb_t *fb, const scene_t *sc)
     uint16_t bevel = rgb565(COL_TRI_BEVEL_R, COL_TRI_BEVEL_G, COL_TRI_BEVEL_B);
     uint16_t glow = rgb565(COL_GLOW_R, COL_GLOW_G, COL_GLOW_B);
 
-    // --- Smooth outer bloom: the die's light bleeding into the liquid. A
-    // single continuous per-pixel falloff (no shells/banding). ---
-    uint8_t glow_peak = (uint8_t)((float)GLOW_PEAK_ALPHA * ((float)sc->pyr_alpha / 255.0f));
-    draw_triangle_glow(fb,
-                       sx[0], sy[0], sx[1], sy[1], sx[2], sy[2],
-                       glow, GLOW_DIST, glow_peak);
+    // --- Smooth outer bloom: the die's light bleeding into the liquid. Driven
+    // by pyr_glow (0 during the rise -> 1 when locked) so the glow is SKIPPED
+    // entirely while tumbling (keeping those frames cheap) and blooms outward as
+    // the answer locks in. Both the reach and the alpha grow with pyr_glow. ---
+    if (sc->pyr_glow > 0.01f) {
+        float reach = GLOW_DIST * sc->pyr_glow;
+        if (reach < 1.0f) {
+            reach = 1.0f;
+        }
+        uint8_t glow_peak = (uint8_t)((float)GLOW_PEAK_ALPHA * sc->pyr_glow
+                                      * ((float)sc->pyr_alpha / 255.0f));
+        draw_triangle_glow(fb,
+                           sx[0], sy[0], sx[1], sy[1], sx[2], sy[2],
+                           glow, reach, glow_peak);
+    }
 
     // --- The die itself: radial gradient + soft bevel. ---
     draw_triangle_gradient(fb,

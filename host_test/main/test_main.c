@@ -1,5 +1,6 @@
 #include "unity.h"
 #include "scene.h"
+#include "fx.h"
 
 TEST_CASE("harness runs", "[harness]")
 {
@@ -18,5 +19,8 @@ TEST_CASE("scene_t has expected enum order", "[scene]")
 
 void app_main(void)
 {
+    // Precompute the background gradient + halo LUT so render tests exercise the
+    // real background path (matches firmware startup).
+    fx_init();
     unity_run_menu();
 }

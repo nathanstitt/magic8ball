@@ -4,6 +4,7 @@
 #include "esp_lcd_panel_io.h"
 #include "esp_heap_caps.h"
 #include "esp_cache.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "esp_log.h"
@@ -98,6 +99,14 @@ void display_flush_and_swap(void)
 {
     uint16_t *buf = s_fb[s_cur ^ 1];
 
+#ifdef DEBUG_FLUSH_PROFILE
+    static int64_t s_acc_swap = 0;
+    static int64_t s_acc_wait = 0;
+    static int s_n = 0;
+    int64_t swap_us = 0;
+    int64_t wait_us = 0;
+#endif
+
     for (int y = 0; y < DISP_H; y += STRIP_ROWS) {
         int y_end = y + STRIP_ROWS;
         if (y_end > DISP_H) {
@@ -110,6 +119,9 @@ void display_flush_and_swap(void)
         // lv_draw_sw_rgb565_swap for the same reason). Swap each pixel's bytes in
         // place before shipping the strip. Safe: this buffer is fully redrawn
         // next frame, and the other buffer is the active render target.
+#ifdef DEBUG_FLUSH_PROFILE
+        int64_t sw0 = esp_timer_get_time();
+#endif
         int strip_px = (y_end - y) * DISP_W;
         for (int i = 0; i < strip_px; i++) {
             strip[i] = __builtin_bswap16(strip[i]);
@@ -121,6 +133,9 @@ void display_flush_and_swap(void)
         size_t strip_bytes = (size_t)strip_px * 2;
         size_t aligned_bytes = (strip_bytes + PSRAM_CACHE_ALIGN - 1) & ~((size_t)PSRAM_CACHE_ALIGN - 1);
         esp_cache_msync(strip, aligned_bytes, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+#ifdef DEBUG_FLUSH_PROFILE
+        swap_us += esp_timer_get_time() - sw0;
+#endif
 
         esp_err_t ret = esp_lcd_panel_draw_bitmap(s_panel, 0, y, DISP_W, y_end, strip);
         if (ret != ESP_OK) {
@@ -130,12 +145,31 @@ void display_flush_and_swap(void)
         }
         // draw_bitmap is async over QSPI: wait for this strip's DMA completion
         // before issuing the next. 100ms timeout so a missed callback never hangs.
+#ifdef DEBUG_FLUSH_PROFILE
+        int64_t w0 = esp_timer_get_time();
+#endif
         if (xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(100)) != pdTRUE) {
             ESP_LOGW(TAG, "flush DMA wait timed out (strip y=%d)", y);
         }
+#ifdef DEBUG_FLUSH_PROFILE
+        wait_us += esp_timer_get_time() - w0;
+#endif
     }
 
     s_cur ^= 1;
+
+#ifdef DEBUG_FLUSH_PROFILE
+    s_acc_swap += swap_us;
+    s_acc_wait += wait_us;
+    s_n++;
+    if (s_n >= 30) {
+        ESP_LOGI(TAG, "flush: swap+msync=%dms  dma_wait=%dms (avg/frame)",
+                 (int)(s_acc_swap / s_n / 1000), (int)(s_acc_wait / s_n / 1000));
+        s_acc_swap = 0;
+        s_acc_wait = 0;
+        s_n = 0;
+    }
+#endif
 }
 
 void display_set_brightness(uint8_t level)

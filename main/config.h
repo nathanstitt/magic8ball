@@ -70,7 +70,7 @@
 // shells, no banding. The glow color matches the bright triangle edge and its
 // peak alpha is high, so the rim blends seamlessly into the bloom (no dark
 // seam). Strong, diffuse halo like the reference.
-#define GLOW_DIST        52.0f     // how far (px) the bloom reaches past the edge
+#define GLOW_DIST        130.0f    // how far (px) the bloom reaches past the edge
 #define GLOW_PEAK_ALPHA  220       // bloom alpha right at the edge (0..255)
 #define COL_GLOW_R       45
 #define COL_GLOW_G      105
@@ -100,8 +100,8 @@
 #define COL_TRI_EDGE_R   45
 #define COL_TRI_EDGE_G  105
 #define COL_TRI_EDGE_B  255
-#define COL_TRI_CTR_R   140
-#define COL_TRI_CTR_G   180
+#define COL_TRI_CTR_R    80
+#define COL_TRI_CTR_G   130
 #define COL_TRI_CTR_B   255
 #define COL_TRI_BEVEL_R 140
 #define COL_TRI_BEVEL_G 180

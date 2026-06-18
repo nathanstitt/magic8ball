@@ -22,6 +22,7 @@
 #include "scene/scene.h"
 #include "scene/statemachine.h"
 #include "render/render.h"
+#include "render/fx.h"
 #include "gfx/framebuffer.h"
 #include "hal/display.h"
 #include "hal/imu.h"
@@ -97,6 +98,18 @@ static void task_render(void *arg)
     fb_t fb;
     scene_t local;
 
+    // Last scene we actually rendered, for static-frame skipping. The AMOLED
+    // holds the last flushed image, so an unchanged scene needs no work.
+    scene_t last_rendered;
+    memset(&last_rendered, 0, sizeof(last_rendered));
+    bool have_rendered = false;
+
+    // Rolling profiling accumulators (logged once per second).
+    int64_t acc_render_us = 0;
+    int64_t acc_flush_us = 0;
+    int frames = 0;
+    int64_t window_start = esp_timer_get_time();
+
     while (true) {
         int64_t start_us = esp_timer_get_time();
 
@@ -105,12 +118,49 @@ static void task_render(void *arg)
         memcpy(&local, &s_shared_scene, sizeof(scene_t));
         xSemaphoreGive(s_scene_mtx);
 
+        // Skip rendering entirely when the scene is identical to the last frame
+        // we drew (idle, showing — particles are frozen in these states). The
+        // panel keeps displaying the last flushed frame.
+        bool unchanged = have_rendered && (memcmp(&local, &last_rendered, sizeof(scene_t)) == 0);
+
         // While asleep the panel is off; skip rendering to save power.
-        if (local.state != ST_SLEEP) {
+        if (local.state != ST_SLEEP && !unchanged) {
             uint16_t *buf = display_back_buffer();
             fb_init(&fb, buf, DISP_W, DISP_H);
+
+            int64_t t0 = esp_timer_get_time();
             render_frame(&fb, &local);
+            int64_t t1 = esp_timer_get_time();
             display_flush_and_swap();
+            memcpy(&last_rendered, &local, sizeof(scene_t));
+            have_rendered = true;
+            int64_t t2 = esp_timer_get_time();
+
+            acc_render_us += (t1 - t0);
+            acc_flush_us += (t2 - t1);
+            frames++;
+        }
+
+        // Once per second, report rendered FPS and avg render/flush times
+        // (build with -DDEBUG_FPS to enable). frames==0 means every frame was
+        // skipped (static) — effectively idle.
+        int64_t now = esp_timer_get_time();
+        if (now - window_start >= 1000000) {
+#ifdef DEBUG_FPS
+            if (frames > 0) {
+                int avg_render = (int)(acc_render_us / frames / 1000);
+                int avg_flush = (int)(acc_flush_us / frames / 1000);
+                int fps = (int)((int64_t)frames * 1000000 / (now - window_start));
+                ESP_LOGI(TAG, "fps=%d  render=%dms  flush=%dms  (state=%d)",
+                         fps, avg_render, avg_flush, (int)local.state);
+            } else {
+                ESP_LOGI(TAG, "idle (frames skipped, static)  state=%d", (int)local.state);
+            }
+#endif
+            acc_render_us = 0;
+            acc_flush_us = 0;
+            frames = 0;
+            window_start = now;
         }
 
         // Pace to the target frame rate (time-based; render may run long).
@@ -131,6 +181,7 @@ extern "C" void app_main(void)
         }
     }
 
+    fx_init();   // precompute background gradient + halo LUT (needs PSRAM)
     power_init();
     s_have_imu = (imu_init() == 0);
     s_have_touch = (touch_init() == 0);

@@ -97,7 +97,11 @@ void sm_tick(sm_t *sm, event_t ev, uint32_t dt_ms)
         break;
     }
 
-    anim_step_particles(&sm->scene, dt_ms, (int)sc->state);
+    // Particles only drift while the answer is churning/rising; at IDLE,
+    // SHOWING and SLEEP they hold still so the render can skip static frames.
+    if (sc->state == ST_SHAKING || sc->state == ST_TUMBLING || sc->state == ST_LOCKING) {
+        anim_step_particles(&sm->scene, dt_ms, (int)sc->state);
+    }
     anim_apply(sc, sm->state_ms, dt_ms);
 }
 

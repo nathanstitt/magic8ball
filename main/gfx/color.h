@@ -7,7 +7,16 @@ static inline uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b)
     return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
 }
 
-// Alpha-blend src over dst. alpha: 0 = dst, 255 = src. Channels blended in 565 space.
+// Divide-by-255 with rounding, approximated by shifts (accurate to within 1).
+// (x + 0x80 + ((x + 0x80) >> 8)) >> 8 ~= (x + 127) / 255 for x in [0, 255*255].
+static inline uint32_t div255(uint32_t x)
+{
+    x += 0x80;
+    return (x + (x >> 8)) >> 8;
+}
+
+// Alpha-blend src over dst. alpha: 0 = dst, 255 = src. Channels blended in 565
+// space. Hot path (every drawn pixel) — uses div255() shifts, no integer divide.
 static inline uint16_t rgb565_blend(uint16_t dst, uint16_t src, uint8_t alpha)
 {
     uint32_t a = alpha;
@@ -16,9 +25,9 @@ static inline uint16_t rgb565_blend(uint16_t dst, uint16_t src, uint8_t alpha)
     uint32_t dr = (dst >> 11) & 0x1F, dg = (dst >> 5) & 0x3F, db = dst & 0x1F;
     uint32_t sr = (src >> 11) & 0x1F, sg = (src >> 5) & 0x3F, sb = src & 0x1F;
 
-    uint32_t r = (sr * a + dr * ia + 127) / 255;
-    uint32_t g = (sg * a + dg * ia + 127) / 255;
-    uint32_t b = (sb * a + db * ia + 127) / 255;
+    uint32_t r = div255(sr * a + dr * ia);
+    uint32_t g = div255(sg * a + dg * ia);
+    uint32_t b = div255(sb * a + db * ia);
 
     return (uint16_t)((r << 11) | (g << 5) | b);
 }

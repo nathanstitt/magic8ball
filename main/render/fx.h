@@ -7,8 +7,13 @@
 extern "C" {
 #endif
 
-// Background gradient (center -> edge) plus an optional dark fog overlay scaled
-// by `murk` (0 = pure gradient, 255 = nearly black).
+// Precompute the static background gradient + halo falloff LUT into PSRAM.
+// Call once after PSRAM is available (e.g. right after display_init). Without
+// it fx_draw_background falls back to a plain dark fill.
+void fx_init(void);
+
+// Background: near-black gradient + a blue glow halo around the die whose
+// strength scales with `murk` (0 = faint halo, 255 = strong/clouded).
 void fx_draw_background(fb_t *fb, uint8_t murk);
 
 // Draw every active particle in the scene as a faint blended dot.

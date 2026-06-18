@@ -61,41 +61,29 @@ TEST_CASE("background center is lit (gradient drawn) inside the circle", "[rende
     TEST_ASSERT_TRUE(fb_get_px(&fb, DISP_CX, DISP_CY) != 0);
 }
 
-TEST_CASE("murk strengthens the blue glow halo around the die", "[render]")
+TEST_CASE("background halo lifts the blue near the die center", "[render]")
 {
-    // New model: murk drives the blue glow halo (the liquid is lit more while
-    // thinking), so a point inside the halo gets a stronger blue channel as murk
-    // rises. Sample ~80px from center (well inside HALO_RADIUS), pyramid hidden.
-    int sx = DISP_CX + 80;
-    int sy = DISP_CY;
+    // The baked halo (fixed strength) makes a point near the center bluer than a
+    // point out near the rim where the halo has faded. Pyramid hidden so only
+    // the background contributes.
+    static uint16_t mem[DISP_W * DISP_H];
+    fb_t fb;
+    fb_init(&fb, mem, DISP_W, DISP_H);
+    scene_t sc = {0};
+    sc.state = ST_TUMBLING;
+    sc.pyr_cx = DISP_CX;
+    sc.pyr_cy = DISP_CY;
+    sc.pyr_alpha = 0;
+    sc.pyr_scale = 1.0f;
+    sc.text = 0;
+    sc.text_alpha = 0;
+    sc.particle_count = 0;
+    sc.murk = 0;
+    render_frame(&fb, &sc);
 
-    static uint16_t mem_clear[DISP_W * DISP_H];
-    fb_t fbc;
-    fb_init(&fbc, mem_clear, DISP_W, DISP_H);
-    scene_t clear = {0};
-    clear.state = ST_TUMBLING;
-    clear.pyr_cx = DISP_CX;
-    clear.pyr_cy = DISP_CY;
-    clear.pyr_alpha = 0;
-    clear.pyr_scale = 1.0f;
-    clear.text = 0;
-    clear.text_alpha = 0;
-    clear.particle_count = 0;
-    clear.murk = 0;
-    render_frame(&fbc, &clear);
-    uint16_t px_clear = fb_get_px(&fbc, sx, sy);
-
-    static uint16_t mem_murk[DISP_W * DISP_H];
-    fb_t fbm;
-    fb_init(&fbm, mem_murk, DISP_W, DISP_H);
-    scene_t clouded = clear;
-    clouded.murk = 220;
-    render_frame(&fbm, &clouded);
-    uint16_t px_murk = fb_get_px(&fbm, sx, sy);
-
-    int blue_clear = px_clear & 0x1F;
-    int blue_murk = px_murk & 0x1F;
-    TEST_ASSERT_TRUE(blue_murk > blue_clear);
+    uint16_t near_center = fb_get_px(&fb, DISP_CX + 60, DISP_CY);
+    uint16_t near_rim = fb_get_px(&fb, DISP_CX + 215, DISP_CY);
+    TEST_ASSERT_TRUE((near_center & 0x1F) > (near_rim & 0x1F));
 }
 
 TEST_CASE("answer text is actually drawn onto the frame", "[render]")
