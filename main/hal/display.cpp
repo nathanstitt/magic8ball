@@ -102,6 +102,14 @@ uint16_t *display_back_buffer(void)
 // so strips begin on aligned boundaries (required for clean PSRAM->DMA sync).
 #define STRIP_ROWS          8
 
+// Load-bearing for the pipelined flush: each full strip must be an exact
+// multiple of the cache line. If it isn't, prepare_strip()'s rounded-up
+// esp_cache_msync would spill into the NEXT (not-yet-byte-swapped) strip while
+// that strip's DMA could be reading it -> corruption. Don't change STRIP_ROWS
+// to a value that breaks this without revisiting prepare_strip().
+static_assert(((STRIP_ROWS * DISP_W * 2) % PSRAM_CACHE_ALIGN) == 0,
+              "a full strip must be a whole number of cache lines");
+
 // Byte-swap a strip (little-endian framebuffer -> big-endian the CO5300 wants)
 // and flush the swapped bytes from CPU cache to PSRAM so the SPI DMA reads
 // current data. The strip start is cache-aligned (see STRIP_ROWS); the size is

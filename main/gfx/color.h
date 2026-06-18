@@ -68,10 +68,10 @@ static inline uint16_t rgb565_lerp(uint16_t a, uint16_t b, float t)
     return (uint16_t)((r << 11) | (g << 5) | b2);
 }
 
-// Add brightness (boost is an additive amount, typically 0..~3), clamping each
-// channel to its 5/6-bit max. For glow/specular brightening only.
-// boost is a fraction of full-channel range: add boost*31 to 5-bit channels and
-// boost*63 to the 6-bit channel, then clamp (boost=1.0 adds full white).
+// Add brightness, clamping each channel to its 5/6-bit max. boost is a fraction
+// of full-channel range: +boost*31 to the 5-bit channels, +boost*63 to the
+// 6-bit channel (boost=1.0 adds full white). For additive glow/specular.
+// (Currently has no firmware caller but is a tested, reusable primitive.)
 static inline uint16_t rgb565_add(uint16_t color, float boost)
 {
     if (boost < 0.0f) {

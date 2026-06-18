@@ -84,27 +84,46 @@ int imu_init(void)
     return 0;
 }
 
-int imu_accel_magnitude_mg(void)
+// Read the three accel axes; returns false on I2C error. Raw LSB (±2g,
+// 16384 LSB/g). out_sumsq = ax^2+ay^2+az^2 (fits in int64; max ~3.2e9).
+static bool imu_read_accel(int64_t *out_sumsq)
 {
     if (!s_ok) {
-        return 0;
+        return false;
     }
-
     uint8_t b[6];
     if (imu_read_reg(REG_AX_L, b, 6) != ESP_OK) {
-        return 0;
+        return false;
     }
-
     int16_t ax = (int16_t)((b[1] << 8) | b[0]);
     int16_t ay = (int16_t)((b[3] << 8) | b[2]);
     int16_t az = (int16_t)((b[5] << 8) | b[4]);
+    *out_sumsq = (int64_t)ax * ax + (int64_t)ay * ay + (int64_t)az * az;
+    return true;
+}
 
-    // ±2g, 16384 LSB/g → scale to mg (x1000)
-    float mag = sqrtf((float)ax * ax + (float)ay * ay + (float)az * az);
+int imu_accel_magnitude_mg(void)
+{
+    int64_t sumsq = 0;
+    if (!imu_read_accel(&sumsq)) {
+        return 0;
+    }
+    // ±2g, 16384 LSB/g → scale to mg (x1000).
+    float mag = sqrtf((float)sumsq);
     return (int)(mag * 1000.0f / 16384.0f);
 }
 
 bool imu_is_shaking(void)
 {
-    return imu_accel_magnitude_mg() > SHAKE_THRESHOLD_MG;
+    // Hot path (polled every tick): compare SQUARED magnitude against the
+    // squared threshold so we avoid sqrt entirely.
+    //   mag_mg > T  <=>  sumsq * (1000/16384)^2 > T^2  <=>  sumsq > T^2 * (16384/1000)^2
+    int64_t sumsq = 0;
+    if (!imu_read_accel(&sumsq)) {
+        return false;
+    }
+    static const float LSB_PER_MG = 16384.0f / 1000.0f;
+    int64_t thresh_sq = (int64_t)((float)SHAKE_THRESHOLD_MG * SHAKE_THRESHOLD_MG
+                                  * LSB_PER_MG * LSB_PER_MG);
+    return sumsq > thresh_sq;
 }

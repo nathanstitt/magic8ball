@@ -121,6 +121,14 @@ static void task_render(void *arg)
         // Skip rendering entirely when the scene is identical to the last frame
         // we drew (idle, showing — particles are frozen in these states). The
         // panel keeps displaying the last flushed frame.
+        //
+        // This bytewise memcmp (incl. floats + struct padding) is safe ONLY
+        // because every scene write flows through memcpy from the state
+        // machine's scene (so padding stays consistent) and static states
+        // re-assign identical float constants each tick (bit-identical). It
+        // fails SAFE: any mismatch just causes an extra render, never a missed
+        // update. If scene_t fields are ever assigned individually elsewhere,
+        // stale padding could cause spurious renders — revisit this then.
         bool unchanged = have_rendered && (memcmp(&local, &last_rendered, sizeof(scene_t)) == 0);
 
         // While asleep the panel is off; skip rendering to save power.
