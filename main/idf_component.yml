@@ -15,5 +15,10 @@ dependencies:
   # Wake-word detection (microWakeWord, ESPHome-derived standalone port). Pulls
   # esp-tflite-micro + ESPMicroSpeechFeatures transitively. GPLv3 — fine for this
   # one-off personal device. Used ONLY by hal/wakeword.cpp; never in host tests.
+  #
+  # Pinned to our fork: upstream hardcodes esp32/rom/crc.h, which doesn't exist on
+  # esp32s3 (it lives at esp32s3/rom/crc.h). The fork's one-line fix uses the
+  # chip-agnostic esp_rom_crc.h so a clean fetch builds. See the fork's HEAD.
   micro_wake_word:
-    git: https://github.com/0xD34D/micro_wake_word_standalone.git
+    git: https://github.com/nathanstitt/micro_wake_word_standalone.git
+    version: "1600f14f4e8face6681ced745da9377727bf2296"
