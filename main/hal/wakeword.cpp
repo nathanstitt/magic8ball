@@ -12,13 +12,17 @@
 
 static const char *TAG = "wakeword";
 
-// Probability cutoff / sliding-window / arena-size tuning come straight from the
-// component's hey_jarvis_detection example -- the values are paired with this
-// specific model, so they live here rather than as config.h tunables.
+// Probability cutoff / sliding-window / features-step tuning come from the
+// component's hey_jarvis_detection example -- paired with this specific model, so
+// they live here rather than as config.h tunables.
 #define WW_PROBABILITY_CUTOFF   0.97f
 #define WW_SLIDING_WINDOW       5
-#define WW_TENSOR_ARENA_SIZE    22940
 #define WW_FEATURES_STEP_SIZE   10
+// Tensor arena for the streaming model. The example's 22940 was too small for
+// this model build -- on-device TFLite AllocateTensors reported needing ~6.9 KB
+// more, so use 48 KB with headroom. The arena allocates from PSRAM (megabytes
+// free), so oversizing is cheap insurance against a silent voice-disable.
+#define WW_TENSOR_ARENA_SIZE    (48 * 1024)
 
 // Latch set from the detection callback, drained edge-triggered by
 // wakeword_detected(). volatile: written from the component's loop() context,
