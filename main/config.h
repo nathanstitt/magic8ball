@@ -25,6 +25,11 @@
 #define DISMISS_MS          300     // ST_DISMISSING duration (fade the answer out)
 #define SHOW_TIMEOUT_MS     90000   // auto-dismiss: after this long showing an answer, fade it out as if tapped
 
+// --- Voice (wake word + VAD listening) -------------------------------------
+#define LISTEN_MAX_MS   8000   // max listening window before answering anyway
+#define SILENCE_MS       700   // quiet duration (ms) that counts as "done asking"
+#define MIN_SPEECH_MS    600   // silence can't end the ask until this long after wake
+
 // --- IMU ---
 // Acceleration magnitude in milli-g (1000 = 1g). A vigorous shake exceeds ~1500.
 #define SHAKE_THRESHOLD_MG  1500
