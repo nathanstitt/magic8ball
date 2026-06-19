@@ -10,6 +10,7 @@
 #include "http_server.h"
 #include "wifi.h"
 #include "provcfg.h"
+#include "config.h"
 
 #include "esp_log.h"
 #include "esp_http_server.h"
@@ -40,6 +41,7 @@ static const char PORTAL_HTML[] =
     "<form method=POST action=/connect>"
     "<input name=ssid placeholder=\"Wi-Fi name (SSID)\" autocomplete=off required>"
     "<input name=password type=password placeholder=\"Password\" autocomplete=off>"
+    "<input name=apikey placeholder=\"Gemini API key (optional)\" autocomplete=off>"
     "<button type=submit>Connect</button></form></body></html>";
 
 // ---- helpers --------------------------------------------------------------
@@ -184,6 +186,10 @@ static esp_err_t h_connect(httpd_req_t *req)
         return ESP_FAIL;
     }
     form_field(body, "password", pass, sizeof(pass));   // optional (open network)
+    char apikey[GEMINI_API_KEY_MAX] = {0};
+    if (form_field(body, "apikey", apikey, sizeof(apikey)) && apikey[0] != '\0') {
+        provcfg_save_api_key(apikey);
+    }
 
     wifi_apply_credentials(ssid, pass);   // saves to NVS
 
