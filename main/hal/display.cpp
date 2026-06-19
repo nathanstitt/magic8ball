@@ -3,7 +3,6 @@
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_heap_caps.h"
-#include "esp_cache.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -24,6 +23,14 @@ static uint16_t                 *s_fb[2] = {NULL, NULL};  // double buffer in PS
 static int                       s_cur = 0;
 static SemaphoreHandle_t         s_flush_done = NULL;
 
+// Two internal-SRAM bounce buffers (one strip each), ping-ponged across the
+// pipelined flush: the byte-swap reads a strip from the PSRAM framebuffer and
+// writes the swapped bytes into one of these, then DMA transmits FROM here while
+// the next strip is swapped into the OTHER buffer. This avoids the in-place
+// read-modify-write over slow PSRAM (the measured ~33ms cost) and needs no
+// esp_cache_msync (internal SRAM is cache-coherent for DMA). Allocated DMA-capable.
+static uint16_t                 *s_strip_buf[2] = {NULL, NULL};
+
 // DMA-done callback (runs in ISR context). Returns whether a higher-priority
 // task was woken, per the esp_lcd_panel_io_color_trans_done_cb_t contract.
 static bool on_color_trans_done(esp_lcd_panel_io_handle_t io,
@@ -37,6 +44,12 @@ static bool on_color_trans_done(esp_lcd_panel_io_handle_t io,
     xSemaphoreGiveFromISR(s_flush_done, &high_task_awoken);
     return high_task_awoken == pdTRUE;
 }
+
+// Flush band height (rows per strip). A full-frame 434 KB single QSPI transfer
+// exhausts the SPI DMA descriptor pool (ESP_ERR_NO_MEM), so we send the frame in
+// STRIP_ROWS-high bands, each an async transfer pipelined with the next strip's
+// byte-swap. 8 rows * 466 px * 2 B = 7456 B per strip (the SRAM bounce-buffer size).
+#define STRIP_ROWS          8
 
 int display_init(void)
 {
@@ -83,6 +96,15 @@ int display_init(void)
         return -1;
     }
 
+    // Two internal-SRAM bounce buffers, one strip each (STRIP_ROWS full rows).
+    size_t strip_bytes = (size_t)STRIP_ROWS * DISP_W * 2;
+    s_strip_buf[0] = (uint16_t *)heap_caps_malloc(strip_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    s_strip_buf[1] = (uint16_t *)heap_caps_malloc(strip_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    if (!s_strip_buf[0] || !s_strip_buf[1]) {
+        ESP_LOGE(TAG, "strip bounce buffer alloc failed");
+        return -1;
+    }
+
     return 0;
 }
 
@@ -91,39 +113,19 @@ uint16_t *display_back_buffer(void)
     return s_fb[s_cur ^ 1];  // render into the buffer NOT currently shown
 }
 
-// Flush the back buffer to the panel in horizontal strips. A full-frame
-// (466*466*2 = 434 KB) single QSPI transfer exhausts the SPI DMA descriptor
-// pool (ESP_ERR_NO_MEM), so we send bands per frame. Each band is a separate
-// async transfer; we wait for its DMA-done callback before issuing the next,
-// then swap once the whole frame has shipped.
-//
-// STRIP_ROWS must keep each strip's start byte offset cache-aligned:
-// 8 rows * 466 px * 2 B = 7456 B = 233 * 32, a multiple of the 32 B cache line,
-// so strips begin on aligned boundaries (required for clean PSRAM->DMA sync).
-#define STRIP_ROWS          8
 
-// Load-bearing for the pipelined flush: each full strip must be an exact
-// multiple of the cache line. If it isn't, prepare_strip()'s rounded-up
-// esp_cache_msync would spill into the NEXT (not-yet-byte-swapped) strip while
-// that strip's DMA could be reading it -> corruption. Don't change STRIP_ROWS
-// to a value that breaks this without revisiting prepare_strip().
-static_assert(((STRIP_ROWS * DISP_W * 2) % PSRAM_CACHE_ALIGN) == 0,
-              "a full strip must be a whole number of cache lines");
-
-// Byte-swap a strip (little-endian framebuffer -> big-endian the CO5300 wants)
-// and flush the swapped bytes from CPU cache to PSRAM so the SPI DMA reads
-// current data. The strip start is cache-aligned (see STRIP_ROWS); the size is
-// rounded up to a cache line.
-static void prepare_strip(uint16_t *buf, int y, int y_end)
+// Byte-swap a strip from the PSRAM framebuffer (little-endian) into a DMA-capable
+// internal-SRAM bounce buffer in the big-endian order the CO5300 wants. Reading
+// PSRAM once and writing SRAM is far cheaper than the old in-place PSRAM
+// read-modify-write, and DMAing from coherent internal SRAM needs no cache sync.
+// `dst` must hold at least (y_end-y)*DISP_W pixels.
+static void prepare_strip(const uint16_t *buf, uint16_t *dst, int y, int y_end)
 {
-    uint16_t *strip = buf + (size_t)y * DISP_W;
+    const uint16_t *strip = buf + (size_t)y * DISP_W;
     int strip_px = (y_end - y) * DISP_W;
     for (int i = 0; i < strip_px; i++) {
-        strip[i] = __builtin_bswap16(strip[i]);
+        dst[i] = __builtin_bswap16(strip[i]);
     }
-    size_t strip_bytes = (size_t)strip_px * 2;
-    size_t aligned = (strip_bytes + PSRAM_CACHE_ALIGN - 1) & ~((size_t)PSRAM_CACHE_ALIGN - 1);
-    esp_cache_msync(strip, aligned, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
 }
 
 static inline int strip_end(int y)
@@ -134,41 +136,42 @@ static inline int strip_end(int y)
 
 void display_flush_and_swap(void)
 {
-    uint16_t *buf = s_fb[s_cur ^ 1];
+    const uint16_t *buf = s_fb[s_cur ^ 1];
 
-    // Pipelined flush: keep one strip's DMA in flight while the CPU prepares
-    // (byte-swaps + cache-syncs) the NEXT strip. This hides most of the ~27ms
-    // per-frame swap cost under the ~23ms of DMA transfer time. Each strip's
-    // draw_bitmap is async (we wait on the previous strip before issuing the
-    // next, so only one transfer is outstanding at a time — within the SPI
-    // queue depth and keeping the swap in lock-step with the DMA).
+    // Pipelined flush: keep one strip's DMA in flight while the CPU byte-swaps the
+    // NEXT strip from PSRAM into the OTHER SRAM bounce buffer. Two buffers
+    // ping-pong (bi) so a strip being prepared never clobbers the source of the
+    // in-flight DMA. DMA reads from coherent internal SRAM, so no cache sync.
 
 #ifdef DEBUG_FLUSH_PROFILE
     int64_t t_swap = 0;
     int64_t t_wait = 0;
 #endif
+    int bi = 0;   // which bounce buffer the current strip uses
+
     // Prepare + kick the first strip.
     int y = 0;
     int ye = strip_end(y);
 #ifdef DEBUG_FLUSH_PROFILE
     int64_t _s0 = esp_timer_get_time();
 #endif
-    prepare_strip(buf, y, ye);
+    prepare_strip(buf, s_strip_buf[bi], y, ye);
 #ifdef DEBUG_FLUSH_PROFILE
     t_swap += esp_timer_get_time() - _s0;
 #endif
     bool inflight = false;
-    if (esp_lcd_panel_draw_bitmap(s_panel, 0, y, DISP_W, ye, buf + (size_t)y * DISP_W) == ESP_OK) {
+    if (esp_lcd_panel_draw_bitmap(s_panel, 0, y, DISP_W, ye, s_strip_buf[bi]) == ESP_OK) {
         inflight = true;
     }
 
     for (int ny = y + STRIP_ROWS; ny < DISP_H; ny += STRIP_ROWS) {
         int nye = strip_end(ny);
+        bi ^= 1;   // prepare into the buffer NOT currently being DMA'd
         // Prepare the next strip WHILE the current strip's DMA is transferring.
 #ifdef DEBUG_FLUSH_PROFILE
         int64_t _s1 = esp_timer_get_time();
 #endif
-        prepare_strip(buf, ny, nye);
+        prepare_strip(buf, s_strip_buf[bi], ny, nye);
 #ifdef DEBUG_FLUSH_PROFILE
         t_swap += esp_timer_get_time() - _s1;
 #endif
@@ -185,7 +188,7 @@ void display_flush_and_swap(void)
 #endif
             inflight = false;
         }
-        if (esp_lcd_panel_draw_bitmap(s_panel, 0, ny, DISP_W, nye, buf + (size_t)ny * DISP_W) == ESP_OK) {
+        if (esp_lcd_panel_draw_bitmap(s_panel, 0, ny, DISP_W, nye, s_strip_buf[bi]) == ESP_OK) {
             inflight = true;
         }
     }
