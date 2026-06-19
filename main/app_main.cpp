@@ -29,8 +29,12 @@
 #include "hal/touch.h"
 #include "hal/power.h"
 #include "hal/wakeword.h"
+#include "hal/recorder.h"
 #include "scene/listen.h"
+#include "scene/answers.h"
 #include "net/net.h"
+#include "net/gemini.h"
+#include "esp_heap_caps.h"
 
 static const char *TAG = "magic8";
 
@@ -42,9 +46,64 @@ static bool s_have_imu = false;
 static bool s_have_touch = false;
 static bool s_have_voice = false;
 
+// Voice-ask coordination. The logic core sets s_voice_busy and notifies s_voice_task
+// on a wake; the voice task records + asks Gemini, injects the answer (or a random
+// fallback) via the net message queue, then clears s_voice_busy.
+static volatile bool   s_voice_busy = false;
+static TaskHandle_t    s_voice_task = NULL;
+
 static uint32_t rng(void)
 {
     return esp_random();
+}
+
+// ---- Core 0: voice ask (blocking record + Gemini, off the logic loop) -------
+static void task_voice(void *arg)
+{
+    (void)arg;
+    // 256KB capture buffer in PSRAM (REC_MAX_SAMPLES * 2 bytes), allocated once.
+    int16_t *pcm = (int16_t *)heap_caps_malloc(REC_MAX_SAMPLES * sizeof(int16_t),
+                                               MALLOC_CAP_SPIRAM);
+    if (!pcm) {
+        ESP_LOGE(TAG, "voice: OOM capture buffer; voice answers disabled");
+        vTaskDelete(NULL);
+        return;
+    }
+    // A private picker for fallback answers (independent of the state machine's).
+    answers_picker_t fb_picker;
+    answers_picker_init(&fb_picker, rng);
+
+    while (true) {
+        // Wait until the logic core signals a wake.
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        char answer[NET_MSG_MAX] = {0};
+        bool got = false;
+
+        // Own the mic: stop wake-word re-arm, record, then ask Gemini.
+        wakeword_set_armed(false);
+        size_t n = 0;
+        if (recorder_capture(pcm, REC_MAX_SAMPLES, &n) == 0) {
+            if (gemini_ask(pcm, n, answer, sizeof(answer)) == 0 && answer[0] != '\0') {
+                got = true;
+            }
+        }
+        wakeword_set_armed(true);
+
+        if (!got) {
+            // Fallback: a random classic answer. answers_pick returns an INDEX;
+            // answers_get maps it to the string.
+            int idx = answers_pick(&fb_picker);
+            const char *classic = answers_get(idx);
+            strncpy(answer, classic ? classic : "Reply hazy try again",
+                    sizeof(answer) - 1);
+            answer[sizeof(answer) - 1] = '\0';
+            ESP_LOGW(TAG, "voice: using fallback answer \"%s\"", answer);
+        }
+
+        net_inject_message(answer);
+        s_voice_busy = false;
+    }
 }
 
 // ---- Core 0: logic ---------------------------------------------------------
@@ -110,10 +169,16 @@ static void task_logic(void *arg)
         // stays correct, and 60Hz is ample for tap/shake polling.
         if (s_have_voice) {
             wakeword_update();
+            bool wake = wakeword_detected();
+            // On a fresh wake (and not already mid-ask), kick the voice task.
+            if (wake && !s_voice_busy && s_voice_task) {
+                s_voice_busy = true;
+                xTaskNotifyGive(s_voice_task);
+            }
             event_t vev = listen_tick(&listen,
-                                      wakeword_detected(),
+                                      wake,
                                       wakeword_speech_active(),
-                                      false,
+                                      s_voice_busy,
                                       dt_ms);
             if (ev == EV_NONE && vev != EV_NONE) {
                 ev = vev;
@@ -316,6 +381,12 @@ extern "C" void app_main(void)
     // give it headroom beyond the original 4096.
     xTaskCreatePinnedToCore(task_logic, "logic", 6144, NULL, 5, NULL, 0);
     xTaskCreatePinnedToCore(task_render, "render", 8192, NULL, 5, NULL, 1);
+
+    if (s_have_voice) {
+        // Voice task on core 0 (logic core). It blocks on a notification, so it's
+        // idle until a wake; the recorder + Gemini stacks need headroom.
+        xTaskCreatePinnedToCore(task_voice, "voice", 8192, NULL, 4, &s_voice_task, 0);
+    }
 
     vTaskDelete(NULL);
 }
