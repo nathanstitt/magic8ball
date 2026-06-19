@@ -73,7 +73,7 @@ static void net_sanitize_into(char *out, size_t cap, const char *raw)
     out[o] = '\0';
 }
 
-static void net_on_http_message(const char *raw)
+void net_inject_message(const char *raw)
 {
     if (!s_msg_q || !raw) {
         return;
@@ -86,6 +86,11 @@ static void net_on_http_message(const char *raw)
     }
     ESP_LOGI(TAG, "message queued: \"%s\"", m.text);
     xQueueOverwrite(s_msg_q, &m);   // never blocks; replaces any older pending msg
+}
+
+static void net_on_http_message(const char *raw)
+{
+    net_inject_message(raw);
 }
 
 bool net_poll_message(net_msg_t *out)

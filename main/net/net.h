@@ -25,6 +25,11 @@ int net_init(void);
 // loop. Latest-wins: only the most recent POST is ever delivered.
 bool net_poll_message(net_msg_t *out);
 
+// Inject a message into the same length-1 queue the HTTP POST path uses (latest
+// wins). Safe to call from any task. Text is sanitized + truncated to NET_MSG_MAX.
+// Used by the voice task to deliver a Gemini (or fallback) answer.
+void net_inject_message(const char *text);
+
 // The status line to show on the AMOLED (e.g. "192.168.1.42" once connected, or
 // the setup hint while the config AP is up). Returns a pointer to a stable,
 // internally-owned, NUL-terminated string that is never freed and only swapped
