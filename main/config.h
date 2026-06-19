@@ -47,7 +47,9 @@
 // blue. Cheap: ~PARTICLE_COUNT point writes per frame, no per-pixel work.
 #define STAR_FLIT_MS      450     // how often each star re-rolls its drift direction
 #define STAR_SPEED        70.0f   // px/s flitting speed while listening
-#define STAR_SIZE         2       // star square side in px (2 = 2x2, ~4x a 1px mote)
+#define STAR_SIZE         2       // small star square side in px (2 = 2x2)
+#define STAR_SIZE_BIG     4       // large star square side in px (half the stars, 4x4)
+#define STAR_FADE_MS      1200    // ms for the starfield to fade out once the answer rises
 #define STAR_ALPHA_MIN    120     // listening stars are brighter than the faint idle motes
 #define STAR_ALPHA_MAX    255
 // Star blue (the themed glow blue, brighter than the faint idle particles).

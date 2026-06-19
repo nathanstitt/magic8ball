@@ -99,21 +99,22 @@ void fx_draw_background(fb_t *fb, uint8_t murk)
 
 void fx_draw_particles(fb_t *fb, const scene_t *sc)
 {
-    if (sc->listening) {
-        // Listening starfield: brighter blue stars. Map each particle's stored
-        // (faint) alpha onto the STAR_ALPHA range so they twinkle at varied
-        // brightness rather than all maxing out.
+    if (sc->star_fade > 0) {
+        // Starfield: brighter blue stars, fading out (star_fade) as the answer
+        // rises. Half the stars (odd index) are large (4x4), half small (2x2) for
+        // size variety. Each star's stored (faint) alpha maps onto the STAR_ALPHA
+        // range so they twinkle, then is scaled by star_fade for the dissolve.
         uint16_t star = rgb565(COL_STAR_R, COL_STAR_G, COL_STAR_B);
         for (int i = 0; i < sc->particle_count; i++) {
             const particle_t *p = &sc->particles[i];
-            uint8_t a = (uint8_t)(STAR_ALPHA_MIN +
-                ((int)p->alpha * (STAR_ALPHA_MAX - STAR_ALPHA_MIN)) / 255);
-            // Draw a STAR_SIZE x STAR_SIZE block (bigger than the 1px idle mote),
-            // centered on the particle. draw_particle_color bounds-checks each pixel.
-            int x0 = (int)p->x - STAR_SIZE / 2;
-            int y0 = (int)p->y - STAR_SIZE / 2;
-            for (int sy = 0; sy < STAR_SIZE; sy++) {
-                for (int sx = 0; sx < STAR_SIZE; sx++) {
+            int base = STAR_ALPHA_MIN +
+                ((int)p->alpha * (STAR_ALPHA_MAX - STAR_ALPHA_MIN)) / 255;
+            uint8_t a = (uint8_t)(base * (int)sc->star_fade / 255);
+            int size = (i & 1) ? STAR_SIZE_BIG : STAR_SIZE;
+            int x0 = (int)p->x - size / 2;
+            int y0 = (int)p->y - size / 2;
+            for (int sy = 0; sy < size; sy++) {
+                for (int sx = 0; sx < size; sx++) {
                     draw_particle_color(fb, x0 + sx, y0 + sy, a, star);
                 }
             }

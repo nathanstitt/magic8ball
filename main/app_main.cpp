@@ -159,10 +159,22 @@ static void task_logic(void *arg)
         // blue starfield. Set post-copy like `status`, so scene/ stays host-testable.
         bool voice_listening = s_have_voice && listen_is_active(&listen);
 
+        // Starfield fade: full brightness while listening, then ease down once the
+        // answer starts rising so the stars dissolve into the rise instead of
+        // popping out. Decays over ~the tumble so it's gone by the time the die locks.
+        static int s_star_fade = 0;
+        if (voice_listening) {
+            s_star_fade = 255;
+        } else if (s_star_fade > 0) {
+            int step = (int)((uint32_t)dt_ms * 255 / STAR_FADE_MS);
+            s_star_fade = (step >= s_star_fade) ? 0 : (s_star_fade - step);
+        }
+
         xSemaphoreTake(s_scene_mtx, portMAX_DELAY);
         memcpy(&s_shared_scene, sm_scene(&sm), sizeof(scene_t));
         s_shared_scene.status = first_answer_shown ? NULL : net_status_line();
         s_shared_scene.listening = voice_listening;
+        s_shared_scene.star_fade = (uint8_t)s_star_fade;
         xSemaphoreGive(s_scene_mtx);
 
         vTaskDelay(pdMS_TO_TICKS(1));

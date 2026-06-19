@@ -164,12 +164,12 @@ TEST_CASE("listening starfield renders brighter blue stars", "[render]")
     s.particles[0].y = (float)DISP_CY;
     s.particles[0].alpha = 60;   // faint stored alpha
 
-    // Listening: the star is drawn brighter + blue; non-listening: the faint mote.
+    // star_fade>0: the star is drawn brighter + blue; star_fade==0: the faint mote.
     // Backgrounds are identical (static gradient both ways), so any difference is
     // the particle. The two renders must differ at the particle pixel.
-    s.listening = true;
+    s.star_fade = 255;
     render_frame(&fl, &s);
-    s.listening = false;
+    s.star_fade = 0;
     render_frame(&fi, &s);
 
     TEST_ASSERT_NOT_EQUAL(fb_get_px(&fl, DISP_CX, DISP_CY),
@@ -189,7 +189,7 @@ TEST_CASE("listening star pixel is blue-dominant", "[render]")
     s.particles[0].x = (float)DISP_CX;
     s.particles[0].y = (float)DISP_CY;
     s.particles[0].alpha = 255;   // bright so the star color dominates the base
-    s.listening = true;
+    s.star_fade = 255;
     render_frame(&fb, &s);
 
     uint16_t px = fb_get_px(&fb, DISP_CX, DISP_CY);

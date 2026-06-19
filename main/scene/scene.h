@@ -75,12 +75,15 @@ typedef struct {
     // touches it, so scene/ stays networking-free and host-testable.
     const char *status;
 
-    // Listening flag (presentation-only, set by app_main during a VOICE listen;
-    // never touched by the state machine). When set, the particles render as a
-    // brighter blue flitting starfield (see fx_draw_particles) instead of the faint
-    // idle motes. The flitting particle motion also keeps each listening frame
-    // distinct, so the render core's static-frame-skip memcmp never skips it.
+    // Listening flag + starfield fade (presentation-only, set by app_main during a
+    // VOICE listen; never touched by the state machine). `listening` is true while
+    // the FSM is pondering. `star_fade` (0..255) is the starfield brightness: full
+    // while listening, then ramped down by app_main across the answer's rise so the
+    // stars dissolve rather than pop out when the triangle floats in. At 0 the
+    // particles render as the faint idle motes. The fading/flitting motion also
+    // keeps each frame distinct, so the render core's static-skip never skips it.
     bool     listening;
+    uint8_t  star_fade;
 
     // Particles.
     particle_t particles[SCENE_MAX_PARTICLES];
