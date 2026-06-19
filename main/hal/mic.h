@@ -6,10 +6,11 @@
 extern "C" {
 #endif
 
-int  mic_init(void);   // 0 on success, -1 on failure (ES7210 over I2S/I2C)
+int  mic_init(void);   // 0 on success, -1 on failure (board mic codec over I2S/I2C)
 
-// Pull up to `max` int16 mono samples captured since the last call. Returns the
-// count actually copied (0 if none ready). Non-blocking.
+// Pull `max` int16 mono samples into `out`. BLOCKS until that many are captured
+// (~16 ms for a full model window at 16 kHz) or the codec read times out.
+// Returns `max` on success, 0 on failure.
 size_t mic_read(int16_t *out, size_t max);
 
 #ifdef __cplusplus

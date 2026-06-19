@@ -96,6 +96,10 @@ static void task_logic(void *arg)
 
         // Voice front-end: pump audio, translate wake+VAD into the existing
         // shake-hold-release pattern. A real tap/shake this tick wins.
+        // NOTE: while the detector is actively listening, wakeword_update() blocks
+        // ~16ms reading a model window, so this loop runs at ~60Hz (not the 1ms
+        // idle cadence) during voice. Harmless: dt_ms is timer-based so timing
+        // stays correct, and 60Hz is ample for tap/shake polling.
         if (s_have_voice) {
             wakeword_update();
             event_t vev = listen_tick(&listen,
