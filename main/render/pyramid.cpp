@@ -21,6 +21,10 @@
 #include "../config.h"
 #include "../gfx/color.h"
 #include "../gfx/draw.h"
+#ifdef DEBUG_RENDER_PROFILE
+#include "esp_timer.h"
+#include "esp_log.h"
+#endif
 
 // Apex-DOWN equilateral triangle, circumradius 1, in the z=0 plane.
 //   v0 = apex (bottom, +y is down on screen), v1 = top-right, v2 = top-left.
@@ -68,6 +72,9 @@ void pyramid_render(fb_t *fb, const scene_t *sc)
     // the answer locks in. Reach and alpha grow with sqrt(pyr_glow) so the glow
     // is a visible halo as soon as it starts (a linear ramp made the first
     // bits a near-invisible 4px sliver). ---
+#ifdef DEBUG_RENDER_PROFILE
+    int64_t _pg0 = esp_timer_get_time();
+#endif
     if (sc->pyr_glow > 0.01f) {
         float g = sqrtf(sc->pyr_glow);   // front-loaded ramp: visible early
         float reach = GLOW_DIST * g;
@@ -80,9 +87,16 @@ void pyramid_render(fb_t *fb, const scene_t *sc)
                            sx[0], sy[0], sx[1], sy[1], sx[2], sy[2],
                            glow, reach, glow_peak);
     }
+#ifdef DEBUG_RENDER_PROFILE
+    int64_t _pg1 = esp_timer_get_time();
+#endif
 
     // --- The die itself: radial gradient + soft bevel. ---
     draw_triangle_gradient(fb,
                            sx[0], sy[0], sx[1], sy[1], sx[2], sy[2],
                            center, edge, bevel, GRAD_BEVEL_STRENGTH, sc->pyr_alpha);
+#ifdef DEBUG_RENDER_PROFILE
+    int64_t _pg2 = esp_timer_get_time();
+    ESP_LOGI("rprof", "  glow=%dus gradient=%dus", (int)(_pg1 - _pg0), (int)(_pg2 - _pg1));
+#endif
 }

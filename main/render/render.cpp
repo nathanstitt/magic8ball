@@ -176,30 +176,46 @@ static void render_text(fb_t *fb, const scene_t *sc)
     }
 }
 
+#ifdef DEBUG_RENDER_PROFILE
+#include "esp_timer.h"
+#include "esp_log.h"
+#define RP_T(var) int64_t var = esp_timer_get_time()
+#define RP_LOG(label, t0, t1) ESP_LOGI("rprof", "%s=%dus", label, (int)((t1) - (t0)))
+#else
+#define RP_T(var)
+#define RP_LOG(label, t0, t1)
+#endif
+
 void render_frame(fb_t *fb, const scene_t *sc)
 {
+    RP_T(_t0);
     // 1. Background gradient + murk.
     fx_draw_background(fb, sc->murk);
+    RP_T(_t1); RP_LOG("bg", _t0, _t1);
 
     // 2. Particles. While listening these flit as a brighter blue starfield; the
     //    state machine already agitates them during the (ST_SHAKING) ponder.
     fx_draw_particles(fb, sc);
+    RP_T(_t2); RP_LOG("particles", _t1, _t2);
 
     // 3. Pyramid (3D lit, back-face culled, sorted, rasterized with glow).
     if (sc->pyr_alpha > 0) {
         pyramid_render(fb, sc);
     }
+    RP_T(_t3); RP_LOG("pyramid", _t2, _t3);
 
     // 4. Answer text (inside the locked face).
     if (sc->text != NULL && sc->text_alpha > 0) {
         render_text(fb, sc);
     }
+    RP_T(_t4); RP_LOG("text", _t3, _t4);
 
     // 5. Glass arc highlight.
     fx_draw_glass_arc(fb);
 
     // 6. Circle clip (must be last for the scene).
     fx_draw_circle_clip(fb);
+    RP_T(_t5); RP_LOG("arc+clip", _t4, _t5);
 
     // 7. Status overlay (Wi-Fi IP / setup hint), drawn AFTER the clip but well
     // inside the circle, so the clip doesn't erase it. Small, dim, monochrome

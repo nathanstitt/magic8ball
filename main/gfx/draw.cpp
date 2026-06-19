@@ -336,15 +336,74 @@ void draw_particle(fb_t *fb, int x, int y, uint8_t alpha)
     draw_particle_color(fb, x, y, alpha, rgb565(180, 200, 255));
 }
 
+// Black out everything outside a circle. The mask is STATIC across frames, so we
+// cache the inside-circle x-span per row (computed once via sqrt per row, not a
+// multiply per pixel) and only zero the OUTSIDE pixels — the corners — each frame.
+// A full per-pixel distance test was a ~25-30ms full-frame sweep; this touches
+// only the ~corner pixels. The cache is keyed on the clip geometry and rebuilt if
+// it ever changes (it doesn't in this app — always DISP center/radius).
+#define CLIP_MAX_ROWS  512   // >= DISP_H; the per-row span cache size
+static int  s_clip_lo[CLIP_MAX_ROWS];   // first x INSIDE the circle on row y
+static int  s_clip_hi[CLIP_MAX_ROWS];   // last  x INSIDE the circle on row y
+static int  s_clip_cx = -1, s_clip_cy = -1, s_clip_r = -1, s_clip_w = -1, s_clip_h = -1;
+
 void draw_circle_clip(fb_t *fb, int cx, int cy, int radius)
 {
-    long r2 = (long)radius * radius;
-    for (int y = 0; y < fb->h; y++) {
-        for (int x = 0; x < fb->w; x++) {
-            long dx = x - cx, dy = y - cy;
-            if (dx * dx + dy * dy > r2) {
-                fb->px[y * fb->w + x] = 0;   // black is byte-swap-invariant
+    if (fb->h > CLIP_MAX_ROWS) {
+        // Span cache too small for this framebuffer — fall back to the exact sweep.
+        long r2 = (long)radius * radius;
+        for (int y = 0; y < fb->h; y++) {
+            for (int x = 0; x < fb->w; x++) {
+                long dx = x - cx, dy = y - cy;
+                if (dx * dx + dy * dy > r2) {
+                    fb->px[y * fb->w + x] = 0;
+                }
             }
+        }
+        return;
+    }
+
+    // (Re)build the per-row inside-circle span cache if the geometry changed.
+    if (cx != s_clip_cx || cy != s_clip_cy || radius != s_clip_r ||
+        fb->w != s_clip_w || fb->h != s_clip_h) {
+        long r2 = (long)radius * radius;
+        for (int y = 0; y < fb->h; y++) {
+            long dy = y - cy;
+            long inside = r2 - dy * dy;
+            if (inside < 0) {
+                s_clip_lo[y] = 0;        // whole row outside the circle
+                s_clip_hi[y] = -1;       // empty inside span -> entire row zeroed
+                continue;
+            }
+            int hw = (int)(sqrtf((float)inside));   // half-width at this row
+            int lo = cx - hw;
+            int hi = cx + hw;
+            if (lo < 0) {
+                lo = 0;
+            }
+            if (hi > fb->w - 1) {
+                hi = fb->w - 1;
+            }
+            s_clip_lo[y] = lo;
+            s_clip_hi[y] = hi;
+        }
+        s_clip_cx = cx;
+        s_clip_cy = cy;
+        s_clip_r = radius;
+        s_clip_w = fb->w;
+        s_clip_h = fb->h;
+    }
+
+    // Zero only the outside pixels: [0, lo) and (hi, w-1] on each row.
+    for (int y = 0; y < fb->h; y++) {
+        uint16_t *row = fb->px + (size_t)y * fb->w;
+        int lo = s_clip_lo[y];
+        int hi = s_clip_hi[y];
+        for (int x = 0; x < lo; x++) {
+            row[x] = 0;
+        }
+        for (int x = hi + 1; x < fb->w; x++) {
+            row[x] = 0;
         }
     }
 }
