@@ -14,7 +14,8 @@ typedef enum {
 
 typedef struct {
     listen_state_t state;
-    uint32_t       listen_ms;    // time in LISTENING (drives LISTEN_MAX_MS)
+    uint32_t       listen_ms;    // total time in LISTENING (drives LISTEN_MAX_MS)
+    uint32_t       speech_ms;    // accumulated speech since wake (min-speech guard)
     uint32_t       silence_ms;   // accumulated quiet since last speech
 } listen_t;
 

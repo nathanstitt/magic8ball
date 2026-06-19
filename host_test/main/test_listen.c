@@ -19,3 +19,36 @@ TEST_CASE("wake word starts pondering", "[listen]")
     TEST_ASSERT_EQUAL_INT(EV_SHAKE, ev);
     TEST_ASSERT_EQUAL_INT(LISTEN_LISTENING, l.state);
 }
+
+TEST_CASE("silence after min-speech ends the ask", "[listen]")
+{
+    listen_t l;
+    listen_init(&l);
+    listen_tick(&l, true, true, 16);                 // wake + talking
+    listen_tick(&l, false, true, MIN_SPEECH_MS);     // keep talking past min-speech
+    event_t ev = listen_tick(&l, false, false, SILENCE_MS);
+    TEST_ASSERT_EQUAL_INT(EV_NONE, ev);
+    TEST_ASSERT_EQUAL_INT(LISTEN_IDLE, l.state);
+}
+
+TEST_CASE("silence before min-speech does NOT end the ask", "[listen]")
+{
+    listen_t l;
+    listen_init(&l);
+    listen_tick(&l, true, false, 16);                // wake, no speech yet
+    event_t ev = listen_tick(&l, false, false, SILENCE_MS);
+    TEST_ASSERT_EQUAL_INT(EV_SHAKE, ev);
+    TEST_ASSERT_EQUAL_INT(LISTEN_LISTENING, l.state);
+}
+
+TEST_CASE("speech resets the silence timer", "[listen]")
+{
+    listen_t l;
+    listen_init(&l);
+    listen_tick(&l, true, true, MIN_SPEECH_MS + 16); // wake + talk past min-speech
+    listen_tick(&l, false, false, SILENCE_MS - 100); // almost-silent (not enough)
+    listen_tick(&l, false, true, 50);                // talks again -> resets
+    event_t ev = listen_tick(&l, false, false, SILENCE_MS - 100); // not enough again
+    TEST_ASSERT_EQUAL_INT(EV_SHAKE, ev);
+    TEST_ASSERT_EQUAL_INT(LISTEN_LISTENING, l.state);
+}
