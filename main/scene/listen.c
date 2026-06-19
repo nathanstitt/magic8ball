@@ -25,6 +25,10 @@ event_t listen_tick(listen_t *l, bool wake_detected, bool speech_active, uint32_
 
     case LISTEN_LISTENING:
         l->listen_ms += dt_ms;
+        if (l->listen_ms >= LISTEN_MAX_MS) {
+            l->state = LISTEN_IDLE;
+            return EV_NONE;
+        }
         if (speech_active) {
             l->speech_ms += dt_ms;
             l->silence_ms = 0;

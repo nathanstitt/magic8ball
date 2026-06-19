@@ -52,3 +52,18 @@ TEST_CASE("speech resets the silence timer", "[listen]")
     TEST_ASSERT_EQUAL_INT(EV_SHAKE, ev);
     TEST_ASSERT_EQUAL_INT(LISTEN_LISTENING, l.state);
 }
+
+TEST_CASE("endless talking fires after the max window", "[listen]")
+{
+    listen_t l;
+    listen_init(&l);
+    listen_tick(&l, true, true, 16);   // wake + talking
+    event_t ev = EV_SHAKE;
+    uint32_t elapsed = 16;
+    while (elapsed < LISTEN_MAX_MS + 200 && ev == EV_SHAKE) {
+        ev = listen_tick(&l, false, true, 100);
+        elapsed += 100;
+    }
+    TEST_ASSERT_EQUAL_INT(EV_NONE, ev);
+    TEST_ASSERT_EQUAL_INT(LISTEN_IDLE, l.state);
+}
