@@ -57,6 +57,8 @@ class BspMicrophone : public esphome::microphone::Microphone {
 static BspMicrophone s_mic;
 static esphome::micro_wake_word::MicroWakeWord s_ww;
 
+static bool s_armed = true;
+
 int wakeword_init(void)
 {
     if (mic_init() != 0) {
@@ -85,6 +87,9 @@ int wakeword_init(void)
 
 void wakeword_update(void)
 {
+    if (!s_armed) {
+        return;   // mic owned by the recorder; don't run the detector or re-arm
+    }
     s_ww.loop();
     // micro_wake_word is a one-shot detector: on a hit it stops the mic and
     // returns to IDLE. Re-arm so we keep listening for the next phrase.
@@ -107,4 +112,12 @@ bool wakeword_speech_active(void)
     // This component is wake-word only (no VAD); it gives no post-wake speech
     // signal. The FSM uses a fixed PONDER_MS instead.
     return false;
+}
+
+void wakeword_set_armed(bool armed)
+{
+    s_armed = armed;
+    if (armed && !s_ww.is_running()) {
+        s_ww.start();
+    }
 }

@@ -20,6 +20,11 @@ bool wakeword_detected(void);
 // Current voice-activity state from the VAD model (true while speech is present).
 bool wakeword_speech_active(void);
 
+// Suppress/allow automatic re-arm of the one-shot detector. While suppressed,
+// wakeword_update() will not restart the detector after a hit, leaving the mic free
+// for the recorder. Call wakeword_set_armed(false) before a voice ask, true after.
+void wakeword_set_armed(bool armed);
+
 #ifdef __cplusplus
 }
 #endif
