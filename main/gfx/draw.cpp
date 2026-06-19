@@ -322,13 +322,17 @@ void draw_triangle_gradient(fb_t *fb, int x0, int y0, int x1, int y1, int x2, in
     }
 }
 
-void draw_particle(fb_t *fb, int x, int y, uint8_t alpha)
+void draw_particle_color(fb_t *fb, int x, int y, uint8_t alpha, uint16_t color)
 {
-    uint16_t white = rgb565(180, 200, 255);
     if (x >= 0 && y >= 0 && x < fb->w && y < fb->h) {
         uint16_t dst = fb->px[y * fb->w + x];
-        fb->px[y * fb->w + x] = rgb565_blend(dst, white, alpha);
+        fb->px[y * fb->w + x] = rgb565_blend(dst, color, alpha);
     }
+}
+
+void draw_particle(fb_t *fb, int x, int y, uint8_t alpha)
+{
+    draw_particle_color(fb, x, y, alpha, rgb565(180, 200, 255));
 }
 
 void draw_circle_clip(fb_t *fb, int cx, int cy, int radius)

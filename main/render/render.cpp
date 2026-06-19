@@ -178,15 +178,11 @@ static void render_text(fb_t *fb, const scene_t *sc)
 
 void render_frame(fb_t *fb, const scene_t *sc)
 {
-    // 1. Background: animated swirl while a voice listen is active, else the
-    // static gradient.
-    if (sc->listening) {
-        fx_draw_swirl(fb, sc->swirl_phase);
-    } else {
-        fx_draw_background(fb, sc->murk);
-    }
+    // 1. Background gradient + murk.
+    fx_draw_background(fb, sc->murk);
 
-    // 2. Particles (below the pyramid).
+    // 2. Particles. While listening these flit as a brighter blue starfield; the
+    //    state machine already agitates them during the (ST_SHAKING) ponder.
     fx_draw_particles(fb, sc);
 
     // 3. Pyramid (3D lit, back-face culled, sorted, rasterized with glow).

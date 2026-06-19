@@ -17,6 +17,10 @@
 #define FRAME_MS        (1000 / TARGET_FPS)
 
 // --- Timing (ms) ---
+// Per-tick animation-time cap. A blocking call (notably voice audio capture) can
+// stall the logic loop; without this cap the next tick's dt would fast-forward
+// the whole answer animation in one frame. 50ms = one frame at 20fps.
+#define DT_MAX_MS           50
 #define THINK_MIN_MS        1000
 #define SHAKE_DEBOUNCE_MS   250
 #define IDLE_SLEEP_MS       30000
@@ -37,16 +41,19 @@
 #define SILENCE_MS       700   // quiet duration (ms) that counts as "done asking"
 #define MIN_SPEECH_MS    600   // silence can't end the ask until this much speech seen
 
-// --- Listening swirl (animated blue cloud background during a voice listen) ---
-#define SWIRL_LAYERS      3       // domain-warped sine layers summed per pixel
-#define SWIRL_SCALE       0.018f  // spatial frequency (1/px); smaller = larger blobs
-#define SWIRL_SPEED       0.6f    // radians/sec the pattern drifts (slow = dreamy)
-#define SWIRL_WARP        2.2f    // domain-warp strength (swirliness)
-#define SWIRL_CONTRAST    0.55f   // 0..1 softness of the blue field (low = soft)
-// Swirl blue (blended over the dark base). Reuses the themed glow blue.
-#define COL_SWIRL_R       30
-#define COL_SWIRL_G       90
-#define COL_SWIRL_B       235
+// --- Listening starfield (particles flit as blue stars during a voice listen) ---
+// While listening, the existing particles are re-tasked as a flitting starfield:
+// each periodically re-rolls its velocity (random flitting) and draws brighter and
+// blue. Cheap: ~PARTICLE_COUNT point writes per frame, no per-pixel work.
+#define STAR_FLIT_MS      450     // how often each star re-rolls its drift direction
+#define STAR_SPEED        70.0f   // px/s flitting speed while listening
+#define STAR_SIZE         2       // star square side in px (2 = 2x2, ~4x a 1px mote)
+#define STAR_ALPHA_MIN    120     // listening stars are brighter than the faint idle motes
+#define STAR_ALPHA_MAX    255
+// Star blue (the themed glow blue, brighter than the faint idle particles).
+#define COL_STAR_R        120
+#define COL_STAR_G        170
+#define COL_STAR_B        255
 
 // --- IMU ---
 // Acceleration magnitude in milli-g (1000 = 1g). A vigorous shake exceeds ~1500.

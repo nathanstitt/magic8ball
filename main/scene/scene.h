@@ -17,12 +17,14 @@ typedef enum {
 } state_t;
 
 typedef struct {
-    float   x;
-    float   y;
-    float   z;
-    float   vx;
-    float   vy;
-    uint8_t alpha;
+    float    x;
+    float    y;
+    float    z;
+    float    vx;
+    float    vy;
+    uint8_t  alpha;
+    uint32_t flit_ms;   // ms since this star last re-rolled its drift (listening)
+    uint32_t rng;       // per-particle LCG state for flit velocity re-rolls
 } particle_t;
 
 #define SCENE_MAX_PARTICLES 24
@@ -73,13 +75,12 @@ typedef struct {
     // touches it, so scene/ stays networking-free and host-testable.
     const char *status;
 
-    // Listening swirl (presentation-only, set by app_main during a VOICE listen;
-    // never touched by the state machine). `listening` selects the animated swirl
-    // background over the static gradient; `swirl_phase` advances each tick so the
-    // swirl animates AND so the render core's static-frame-skip memcmp sees each
-    // listening frame as different (forcing a redraw). See render/fx.cpp.
+    // Listening flag (presentation-only, set by app_main during a VOICE listen;
+    // never touched by the state machine). When set, the particles render as a
+    // brighter blue flitting starfield (see fx_draw_particles) instead of the faint
+    // idle motes. The flitting particle motion also keeps each listening frame
+    // distinct, so the render core's static-frame-skip memcmp never skips it.
     bool     listening;
-    float    swirl_phase;
 
     // Particles.
     particle_t particles[SCENE_MAX_PARTICLES];

@@ -281,3 +281,40 @@ TEST_CASE("particle step wraps across an edge and stays in bounds", "[anim]")
     TEST_ASSERT_TRUE(sc.particles[0].y >= 0 && sc.particles[0].y < DISP_H);
     TEST_ASSERT_FLOAT_WITHIN(0.5f, (float)(DISP_W - 5), sc.particles[0].x);
 }
+
+TEST_CASE("listening starfield re-rolls velocity (flits) during shaking", "[anim]")
+{
+    scene_t sc = {0};
+    sc.particle_count = 1;
+    sc.particles[0].x = 200;
+    sc.particles[0].y = 200;
+    sc.particles[0].vx = 0;
+    sc.particles[0].vy = 0;
+    sc.particles[0].alpha = 80;
+    sc.particles[0].rng = 12345u;
+    sc.particles[0].flit_ms = 0;
+
+    // One step past the flit interval while ST_SHAKING must assign a fresh
+    // velocity at the flit speed (it was zero before).
+    anim_step_particles(&sc, STAR_FLIT_MS + 10, ST_SHAKING);
+    float speed = sqrtf(sc.particles[0].vx * sc.particles[0].vx +
+                        sc.particles[0].vy * sc.particles[0].vy);
+    TEST_ASSERT_FLOAT_WITHIN(1.0f, STAR_SPEED, speed);
+}
+
+TEST_CASE("particles do NOT flit when idle (no re-roll)", "[anim]")
+{
+    scene_t sc = {0};
+    sc.particle_count = 1;
+    sc.particles[0].x = 200;
+    sc.particles[0].y = 200;
+    sc.particles[0].vx = 7;
+    sc.particles[0].vy = -3;
+    sc.particles[0].alpha = 80;
+    sc.particles[0].rng = 12345u;
+
+    anim_step_particles(&sc, STAR_FLIT_MS + 10, ST_IDLE);
+    // Velocity is untouched while idle, so the drift matches the original v.
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 7.0f, sc.particles[0].vx);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, -3.0f, sc.particles[0].vy);
+}

@@ -33,8 +33,11 @@ void draw_triangle_gradient(fb_t *fb, int x0, int y0, int x1, int y1, int x2, in
                             uint16_t center_color, uint16_t edge_color,
                             uint16_t bevel_color, float bevel, uint8_t alpha);
 
-// Faint round particle (a single blended dot) at (x,y).
+// Faint round particle (a single blended dot) at (x,y), in the default mote color.
 void draw_particle(fb_t *fb, int x, int y, uint8_t alpha);
+
+// Same, but blended in an explicit RGB565 color (used for the listening starfield).
+void draw_particle_color(fb_t *fb, int x, int y, uint8_t alpha, uint16_t color);
 
 // Force every pixel outside the circle to black (round-display safety).
 void draw_circle_clip(fb_t *fb, int cx, int cy, int radius);

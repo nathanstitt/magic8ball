@@ -147,36 +147,7 @@ TEST_CASE("word wrap never exceeds RENDER_MAX_LINES even for very long text", "[
     TEST_ASSERT_TRUE(n >= 1 && n <= RENDER_MAX_LINES);
 }
 
-TEST_CASE("swirl animates: different phases differ", "[render]")
-{
-    static uint16_t a[DISP_W * DISP_H];
-    static uint16_t b[DISP_W * DISP_H];
-    fb_t fa, fb2;
-    fb_init(&fa, a, DISP_W, DISP_H);
-    fb_init(&fb2, b, DISP_W, DISP_H);
-
-    fx_draw_swirl(&fa, 0.0f);
-    fx_draw_swirl(&fb2, 1.5f);
-
-    TEST_ASSERT_NOT_EQUAL(0, memcmp(a, b, sizeof(a)));
-}
-
-TEST_CASE("swirl center is blue-dominant", "[render]")
-{
-    static uint16_t a[DISP_W * DISP_H];
-    fb_t fa;
-    fb_init(&fa, a, DISP_W, DISP_H);
-    fx_draw_swirl(&fa, 0.0f);
-
-    uint16_t px = fb_get_px(&fa, DISP_CX, DISP_CY);
-    int r = (px >> 11) & 0x1F;
-    int g = (px >> 5) & 0x3F;
-    int b = px & 0x1F;
-    TEST_ASSERT_TRUE(b > r);
-    TEST_ASSERT_TRUE(b * 2 > g);
-}
-
-TEST_CASE("listening scene renders the swirl, not the static bg", "[render]")
+TEST_CASE("listening starfield renders brighter blue stars", "[render]")
 {
     static uint16_t lis[DISP_W * DISP_H];
     static uint16_t idle[DISP_W * DISP_H];
@@ -184,18 +155,47 @@ TEST_CASE("listening scene renders the swirl, not the static bg", "[render]")
     fb_init(&fl, lis, DISP_W, DISP_H);
     fb_init(&fi, idle, DISP_W, DISP_H);
 
+    // One particle near center so we can read its pixel deterministically.
     scene_t s = {0};
     s.state = ST_SHAKING;
     s.pyr_cx = DISP_CX;
-    s.particle_count = 0;
+    s.particle_count = 1;
+    s.particles[0].x = (float)DISP_CX;
+    s.particles[0].y = (float)DISP_CY;
+    s.particles[0].alpha = 60;   // faint stored alpha
 
+    // Listening: the star is drawn brighter + blue; non-listening: the faint mote.
+    // Backgrounds are identical (static gradient both ways), so any difference is
+    // the particle. The two renders must differ at the particle pixel.
     s.listening = true;
-    s.swirl_phase = 0.4f;
     render_frame(&fl, &s);
-
     s.listening = false;
     render_frame(&fi, &s);
 
-    // The swirl background must differ from the static background somewhere.
-    TEST_ASSERT_NOT_EQUAL(0, memcmp(lis, idle, sizeof(lis)));
+    TEST_ASSERT_NOT_EQUAL(fb_get_px(&fl, DISP_CX, DISP_CY),
+                          fb_get_px(&fi, DISP_CX, DISP_CY));
+}
+
+TEST_CASE("listening star pixel is blue-dominant", "[render]")
+{
+    static uint16_t buf[DISP_W * DISP_H];
+    fb_t fb;
+    fb_init(&fb, buf, DISP_W, DISP_H);
+
+    scene_t s = {0};
+    s.state = ST_SHAKING;
+    s.pyr_cx = DISP_CX;
+    s.particle_count = 1;
+    s.particles[0].x = (float)DISP_CX;
+    s.particles[0].y = (float)DISP_CY;
+    s.particles[0].alpha = 255;   // bright so the star color dominates the base
+    s.listening = true;
+    render_frame(&fb, &s);
+
+    uint16_t px = fb_get_px(&fb, DISP_CX, DISP_CY);
+    int r = (px >> 11) & 0x1F;
+    int g = (px >> 5) & 0x3F;
+    int b = px & 0x1F;
+    TEST_ASSERT_TRUE(b > r);
+    TEST_ASSERT_TRUE(b * 2 > g);
 }

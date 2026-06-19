@@ -96,47 +96,30 @@ void fx_draw_background(fb_t *fb, uint8_t murk)
     memcpy(fb->px, s_bg, npx * sizeof(uint16_t));
 }
 
-void fx_draw_swirl(fb_t *fb, float phase)
-{
-    uint16_t base = rgb565(COL_BG_EDGE_R, COL_BG_EDGE_G, COL_BG_EDGE_B);
-    uint16_t blue = rgb565(COL_SWIRL_R, COL_SWIRL_G, COL_SWIRL_B);
-
-    for (int y = 0; y < DISP_H; y++) {
-        float dy = (float)(y - DISP_CY) * SWIRL_SCALE;
-        for (int x = 0; x < DISP_W; x++) {
-            float dx = (float)(x - DISP_CX) * SWIRL_SCALE;
-
-            // Domain-warp the sample point so the layers swirl rather than ripple.
-            // 1.3f/1.7f detune the two warp axes; 0.8f offsets their drift phase.
-            float wx = dx + SWIRL_WARP * sinf(dy * 1.3f + phase);
-            float wy = dy + SWIRL_WARP * sinf(dx * 1.7f - phase * 0.8f);
-
-            // Sum a few octaves of rotating sine. 1.9f is the per-layer frequency
-            // ratio; 0.5f + 0.3f*l gives each layer a distinct drift speed.
-            float v = 0.0f;
-            float f = 1.0f;
-            for (int l = 0; l < SWIRL_LAYERS; l++) {
-                v += sinf((wx * f) + (wy * f) + phase * (0.5f + 0.3f * l)) / f;
-                f *= 1.9f;
-            }
-            float n = 0.5f + 0.25f * v;
-            if (n < 0.0f) {
-                n = 0.0f;
-            }
-            if (n > 1.0f) {
-                n = 1.0f;
-            }
-            n *= SWIRL_CONTRAST;
-
-            uint8_t a = (uint8_t)(n * 255.0f + 0.5f);   // round, matching fx_init
-            size_t i = (size_t)y * DISP_W + x;
-            fb->px[i] = rgb565_blend(base, blue, a);
-        }
-    }
-}
 
 void fx_draw_particles(fb_t *fb, const scene_t *sc)
 {
+    if (sc->listening) {
+        // Listening starfield: brighter blue stars. Map each particle's stored
+        // (faint) alpha onto the STAR_ALPHA range so they twinkle at varied
+        // brightness rather than all maxing out.
+        uint16_t star = rgb565(COL_STAR_R, COL_STAR_G, COL_STAR_B);
+        for (int i = 0; i < sc->particle_count; i++) {
+            const particle_t *p = &sc->particles[i];
+            uint8_t a = (uint8_t)(STAR_ALPHA_MIN +
+                ((int)p->alpha * (STAR_ALPHA_MAX - STAR_ALPHA_MIN)) / 255);
+            // Draw a STAR_SIZE x STAR_SIZE block (bigger than the 1px idle mote),
+            // centered on the particle. draw_particle_color bounds-checks each pixel.
+            int x0 = (int)p->x - STAR_SIZE / 2;
+            int y0 = (int)p->y - STAR_SIZE / 2;
+            for (int sy = 0; sy < STAR_SIZE; sy++) {
+                for (int sx = 0; sx < STAR_SIZE; sx++) {
+                    draw_particle_color(fb, x0 + sx, y0 + sy, a, star);
+                }
+            }
+        }
+        return;
+    }
     for (int i = 0; i < sc->particle_count; i++) {
         const particle_t *p = &sc->particles[i];
         draw_particle(fb, (int)p->x, (int)p->y, p->alpha);

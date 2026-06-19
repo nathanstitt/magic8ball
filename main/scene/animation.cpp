@@ -329,17 +329,35 @@ void anim_seed_particles(scene_t *sc)
         sc->particles[i].vx = ((int)((h >> 1) & 7) - 3) * 4.0f;  // -12..+12 px/s
         sc->particles[i].vy = ((int)((h >> 4) & 7) - 3) * 4.0f;
         sc->particles[i].alpha = 40 + (h & 0x3F);               // faint
+        // Seed each star's flit RNG distinctly (nonzero) and stagger its first
+        // re-roll so they don't all change direction on the same frame.
+        sc->particles[i].rng = h ^ 0x9E3779B9u;
+        sc->particles[i].flit_ms = (h >> 5) % STAR_FLIT_MS;
     }
 }
 
 void anim_step_particles(scene_t *sc, uint32_t dt_ms, int state)
 {
     float dt = (float)dt_ms / 1000.0f;
-    float gain = (state == ST_SHAKING) ? 4.0f : 1.0f;  // agitate while churning
+    // While pondering (ST_SHAKING) the particles become a flitting starfield: each
+    // re-rolls to a fresh random direction at STAR_SPEED every STAR_FLIT_MS, so they
+    // wander rather than drift in a line. Outside that, they keep their slow idle
+    // drift unchanged.
+    bool flit = (state == ST_SHAKING);
     for (int i = 0; i < sc->particle_count; i++) {
         particle_t *p = &sc->particles[i];
-        p->x += p->vx * dt * gain;
-        p->y += p->vy * dt * gain;
+        if (flit) {
+            p->flit_ms += dt_ms;
+            if (p->flit_ms >= STAR_FLIT_MS) {
+                p->flit_ms = 0;
+                p->rng = p->rng * 1664525u + 1013904223u;      // LCG
+                float ang = (float)(p->rng >> 8) * (6.2831853f / 16777216.0f);
+                p->vx = cosf(ang) * STAR_SPEED;
+                p->vy = sinf(ang) * STAR_SPEED;
+            }
+        }
+        p->x += p->vx * dt;
+        p->y += p->vy * dt;
         // Wrap within the buffer so they never leave the scene.
         while (p->x < 0) {
             p->x += DISP_W;
