@@ -53,7 +53,17 @@ int mic_init(void)
         return -1;
     }
 
-    ESP_LOGI(TAG, "mic ready (%d Hz, 16-bit mono)", MIC_SAMPLE_RATE_HZ);
+    // Raise the mic input gain. At the codec default, captured speech measured at an
+    // RMS of only ~15 (out of 32767) -- far too quiet for Gemini to transcribe (it
+    // just hallucinated a generic answer). MIC_GAIN_DB lifts it to a usable level.
+    ret = esp_codec_dev_set_in_gain(s_codec, MIC_GAIN_DB);
+    if (ret != ESP_CODEC_DEV_OK) {
+        ESP_LOGW(TAG, "esp_codec_dev_set_in_gain(%d dB) failed: %d (continuing)",
+                 (int)MIC_GAIN_DB, ret);
+    }
+
+    ESP_LOGI(TAG, "mic ready (%d Hz, 16-bit mono, gain %d dB)",
+             MIC_SAMPLE_RATE_HZ, (int)MIC_GAIN_DB);
     return 0;
 }
 
