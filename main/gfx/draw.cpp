@@ -278,13 +278,38 @@ void draw_triangle_gradient(fb_t *fb, int x0, int y0, int x1, int y1, int x2, in
     }
     float inv_area = 1.0f / (float)area;
 
+    // Per-pixel edge functions are linear, so compute them once per row at minx
+    // and step by a constant each pixel (no multiplies in the inner loop). The
+    // x-step of w_k is its x-coefficient; the y-step is its y-coefficient.
+    // w0 = edge_fn(x1,y1,x2,y2,x,y) -> d/dx = (y2-y1), d/dy = -(x2-x1).
+    int ax0 = (y2 - y1), ay0 = -(x2 - x1);
+    int ax1 = (y0 - y2), ay1 = -(x0 - x2);
+    int ax2 = (y1 - y0), ay2 = -(x1 - x0);
+    int row_w0 = edge_fn(x1, y1, x2, y2, minx, miny);
+    int row_w1 = edge_fn(x2, y2, x0, y0, minx, miny);
+    int row_w2 = edge_fn(x0, y0, x1, y1, minx, miny);
+
+    // Radial-fill ramp: edge_color -> center_color over t in [0,1], baked into a
+    // 256-entry LUT so the per-pixel inner loop is a table lookup, not a float
+    // rgb565_lerp. Cached and rebuilt only if the two colors change.
+    static uint16_t s_grad_ramp[256];
+    static uint16_t s_grad_edge = 0, s_grad_center = 0;
+    static bool s_grad_ready = false;
+    if (!s_grad_ready || edge_color != s_grad_edge || center_color != s_grad_center) {
+        for (int i = 0; i < 256; i++) {
+            s_grad_ramp[i] = rgb565_lerp(edge_color, center_color, (float)i / 255.0f);
+        }
+        s_grad_edge = edge_color;
+        s_grad_center = center_color;
+        s_grad_ready = true;
+    }
+    const float t_scale = 255.0f / GRAD_CENTER_BARY;   // bary_min -> ramp index
+
     for (int y = miny; y <= maxy; y++) {
         bool entered = false;
         uint16_t *row = fb->px + (size_t)y * fb->w;
-        for (int x = minx; x <= maxx; x++) {
-            int w0 = edge_fn(x1, y1, x2, y2, x, y);
-            int w1 = edge_fn(x2, y2, x0, y0, x, y);
-            int w2 = edge_fn(x0, y0, x1, y1, x, y);
+        int w0 = row_w0, w1 = row_w1, w2 = row_w2;
+        for (int x = minx; x <= maxx; x++, w0 += ax0, w1 += ax1, w2 += ax2) {
             bool inside = (area > 0)
                 ? (w0 >= 0 && w1 >= 0 && w2 >= 0)
                 : (w0 <= 0 && w1 <= 0 && w2 <= 0);
@@ -302,15 +327,15 @@ void draw_triangle_gradient(fb_t *fb, int x0, int y0, int x1, int y1, int x2, in
             float b2 = w2 * inv_area;
             float bary_min = b0 < b1 ? (b0 < b2 ? b0 : b2) : (b1 < b2 ? b1 : b2);
 
-            // Radial fill: edge_color at the rim -> center_color deep inside.
-            float t = bary_min / GRAD_CENTER_BARY;
-            if (t > 1.0f) {
-                t = 1.0f;
+            // Radial fill via the ramp LUT (edge at the rim -> center deep inside).
+            int ti = (int)(bary_min * t_scale);
+            if (ti > 255) {
+                ti = 255;
             }
-            uint16_t pixel = rgb565_lerp(edge_color, center_color, t);
+            uint16_t pixel = s_grad_ramp[ti];
 
-            // Soft bevel: a thin lighter-blue band just inside the edge. The
-            // factor rises from 0 at the rim to a peak mid-band, then back to 0.
+            // Soft bevel: a thin lighter-blue band just inside the edge. Rare
+            // (only near the rim), so the float path here is fine.
             if (bevel > 0.0f && bary_min < GRAD_BEVEL_BARY) {
                 float bf = bary_min / GRAD_BEVEL_BARY;          // 0..1 across band
                 float tri = 1.0f - fabsf(bf * 2.0f - 1.0f);     // peak at band center
@@ -320,6 +345,9 @@ void draw_triangle_gradient(fb_t *fb, int x0, int y0, int x1, int y1, int x2, in
             uint16_t dst = fb_unpack(row[x]);
             row[x] = fb_pack(rgb565_blend(dst, pixel, alpha));
         }
+        row_w0 += ay0;
+        row_w1 += ay1;
+        row_w2 += ay2;
     }
 }
 
