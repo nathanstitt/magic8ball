@@ -36,7 +36,7 @@
 // (MIN_SPEECH_MS + SILENCE_MS) and the LISTEN_MAX_MS backstop remain for a future
 // VAD source that supplies speech_active; they are dormant while it stays false.
 #define MIC_SAMPLE_RATE_HZ  16000  // capture rate the wake-word model expects (16 kHz mono int16)
-#define PONDER_MS       10000  // wake ponder / in-flight voice ask window (tune on hardware)
+#define PONDER_MS       3000   // wake ponder / in-flight voice ask window (tune on hardware)
 // Hard cap on a voice ask (record + Gemini round-trip). If the voice task hasn't
 // produced text by now, the logic loop reveals a random fallback. Chosen so a real
 // answer about to land always beats this timer. Tune once real latency is known.
