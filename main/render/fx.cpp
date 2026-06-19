@@ -128,7 +128,7 @@ void fx_draw_swirl(fb_t *fb, float phase)
             }
             n *= SWIRL_CONTRAST;
 
-            uint8_t a = (uint8_t)(n * 255.0f);
+            uint8_t a = (uint8_t)(n * 255.0f + 0.5f);   // round, matching fx_init
             size_t i = (size_t)y * DISP_W + x;
             fb->px[i] = rgb565_blend(base, blue, a);
         }
