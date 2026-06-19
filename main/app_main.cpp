@@ -142,9 +142,23 @@ static void task_logic(void *arg)
         // scene/ stays networking-free: net_status_line() returns a stable,
         // never-freed string (or NULL). Suppress it once the first answer has
         // been shown so the IP doesn't clutter the scene afterward.
+        // Listening swirl: animate only during a VOICE listen (the listen FSM is
+        // in LISTEN_LISTENING). Accumulate the phase in a static so it survives the
+        // per-tick scene memcpy; advancing it each tick also defeats the render
+        // core's static-frame skip so the swirl actually moves.
+        static float s_swirl_phase = 0.0f;
+        bool voice_listening = s_have_voice && (listen.state == LISTEN_LISTENING);
+        if (voice_listening) {
+            s_swirl_phase += SWIRL_SPEED * ((float)dt_ms / 1000.0f);
+        } else {
+            s_swirl_phase = 0.0f;
+        }
+
         xSemaphoreTake(s_scene_mtx, portMAX_DELAY);
         memcpy(&s_shared_scene, sm_scene(&sm), sizeof(scene_t));
         s_shared_scene.status = first_answer_shown ? NULL : net_status_line();
+        s_shared_scene.listening = voice_listening;
+        s_shared_scene.swirl_phase = s_swirl_phase;
         xSemaphoreGive(s_scene_mtx);
 
         vTaskDelay(pdMS_TO_TICKS(1));
