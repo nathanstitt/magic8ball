@@ -175,3 +175,27 @@ TEST_CASE("swirl center is blue-dominant", "[render]")
     TEST_ASSERT_TRUE(b > r);
     TEST_ASSERT_TRUE(b * 2 > g);
 }
+
+TEST_CASE("listening scene renders the swirl, not the static bg", "[render]")
+{
+    static uint16_t lis[DISP_W * DISP_H];
+    static uint16_t idle[DISP_W * DISP_H];
+    fb_t fl, fi;
+    fb_init(&fl, lis, DISP_W, DISP_H);
+    fb_init(&fi, idle, DISP_W, DISP_H);
+
+    scene_t s = {0};
+    s.state = ST_SHAKING;
+    s.pyr_cx = DISP_CX;
+    s.particle_count = 0;
+
+    s.listening = true;
+    s.swirl_phase = 0.4f;
+    render_frame(&fl, &s);
+
+    s.listening = false;
+    render_frame(&fi, &s);
+
+    // The swirl background must differ from the static background somewhere.
+    TEST_ASSERT_NOT_EQUAL(0, memcmp(lis, idle, sizeof(lis)));
+}

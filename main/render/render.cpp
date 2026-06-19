@@ -178,8 +178,13 @@ static void render_text(fb_t *fb, const scene_t *sc)
 
 void render_frame(fb_t *fb, const scene_t *sc)
 {
-    // 1. Background gradient + murk.
-    fx_draw_background(fb, sc->murk);
+    // 1. Background: animated swirl while a voice listen is active, else the
+    // static gradient.
+    if (sc->listening) {
+        fx_draw_swirl(fb, sc->swirl_phase);
+    } else {
+        fx_draw_background(fb, sc->murk);
+    }
 
     // 2. Particles (below the pyramid).
     fx_draw_particles(fb, sc);
