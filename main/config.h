@@ -173,11 +173,13 @@
     "Answer in 5 words or fewer: cryptic, confident, oracular. " \
     "Output only the answer, no punctuation beyond a final period."
 
-// --- Boot reset gesture ---
-// Hold the screen at power-on for this long to clear saved Wi-Fi + API key and
-// reboot into the setup AP (re-provision via the captive portal). Long enough to
-// be deliberate, short enough not to feel stuck.
-#define RESET_HOLD_MS   3000
+// --- Factory-reset gesture (hold screen during normal use) ---
+// Hold the screen continuously. Past RESET_ARM_MS a "keep holding" countdown overlay
+// appears (long enough that a normal tap never arms it); held to RESET_HOLD_MS total,
+// the device clears saved Wi-Fi + API key and reboots into the setup AP. Release any
+// time before RESET_HOLD_MS to cancel.
+#define RESET_ARM_MS    1000
+#define RESET_HOLD_MS   4000
 
 // --- Colors (R, G, B — 0..255) ---
 // Background liquid: near-black, faint blue lift toward the center.

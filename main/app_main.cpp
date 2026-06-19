@@ -17,6 +17,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include <string.h>
+#include <stdio.h>
 
 #include "config.h"
 #include "scene/scene.h"
@@ -56,6 +57,18 @@ static bool s_have_voice = false;
 // fallback) via the net message queue, then clears s_voice_busy.
 static volatile bool   s_voice_busy = false;
 static TaskHandle_t    s_voice_task = NULL;
+
+// Factory-reset gesture overlay. While true, the logic loop owns the panel (drawing
+// the "hold to reset" countdown) and the render task must NOT flush, so the two
+// don't fight over the display. Set/cleared only by the logic loop.
+static volatile bool   s_reset_overlay = false;
+// Set by the logic loop when the overlay ends, to force one render-task redraw (the
+// overlay drew directly to the panel behind the render task's static-frame cache).
+static volatile bool   s_force_render = false;
+
+// Defined below app_main's helpers; used by task_logic above them.
+static void reset_screen(const char *line1, const char *line2, uint16_t color);
+static void factory_reset(void);
 
 static uint32_t rng(void)
 {
@@ -167,6 +180,41 @@ static void task_logic(void *arg)
             ev = EV_SHAKE;
         }
 
+        // Factory-reset gesture: hold the screen continuously. Past RESET_ARM_MS we
+        // show a countdown overlay; held to RESET_HOLD_MS total, we clear creds and
+        // reboot. Released before then, the overlay clears and normal play resumes.
+        // Uses touch_is_down() (level), separate from the tap edge above.
+        static uint32_t s_hold_ms = 0;
+        static int s_shown_remain = -1;   // last countdown value drawn (-1 = none)
+        if (s_have_touch && touch_is_down()) {
+            s_hold_ms += dt_ms;
+            if (s_hold_ms >= RESET_HOLD_MS) {
+                factory_reset();   // never returns
+            }
+            if (s_hold_ms >= RESET_ARM_MS) {
+                s_reset_overlay = true;   // take the panel from the render task
+                int remain = (int)((RESET_HOLD_MS - s_hold_ms + 999) / 1000);
+                // Redraw only when the countdown number changes (each draw is a slow
+                // full-frame flush; redrawing every tick would saturate the loop).
+                if (remain != s_shown_remain) {
+                    s_shown_remain = remain;
+                    char line2[24];
+                    snprintf(line2, sizeof(line2), "RESET IN %d...", remain);
+                    reset_screen("KEEP HOLDING", line2, rgb565(120, 170, 255));
+                }
+            }
+        } else {
+            if (s_reset_overlay) {
+                // Released: hand the panel back and force the render task to redraw
+                // (it caches the last scene and drew nothing, so the overlay would
+                // otherwise stay frozen on the panel).
+                s_reset_overlay = false;
+                s_force_render = true;
+            }
+            s_hold_ms = 0;
+            s_shown_remain = -1;
+        }
+
         // Voice front-end: pump audio, translate wake+VAD into the existing
         // shake-hold-release pattern. A real tap/shake this tick wins.
         // NOTE: while the detector is actively listening, wakeword_update() blocks
@@ -275,6 +323,13 @@ static void task_render(void *arg)
     while (true) {
         int64_t start_us = esp_timer_get_time();
 
+        // While the factory-reset overlay is up, the logic loop owns the panel; back
+        // off so we don't flush over its "hold to reset" countdown.
+        if (s_reset_overlay) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
+
         // Snapshot the latest published scene under the mutex.
         xSemaphoreTake(s_scene_mtx, portMAX_DELAY);
         memcpy(&local, &s_shared_scene, sizeof(scene_t));
@@ -292,6 +347,14 @@ static void task_render(void *arg)
         // update. If scene_t fields are ever assigned individually elsewhere,
         // stale padding could cause spurious renders — revisit this then.
         bool unchanged = have_rendered && (memcmp(&local, &last_rendered, sizeof(scene_t)) == 0);
+
+        // After the reset overlay drew directly to the panel, the scene may be
+        // bit-identical to last_rendered (unchanged), yet the panel shows the
+        // overlay. Force one redraw to restore the real scene.
+        if (s_force_render) {
+            s_force_render = false;
+            unchanged = false;
+        }
 
         // While asleep the panel is off; skip rendering to save power.
         if (local.state != ST_SLEEP && !unchanged) {
@@ -341,9 +404,10 @@ static void task_render(void *arg)
 }
 
 // Draw two centered lines of the 8x8 bitmap font on a freshly-cleared panel and
-// flush. Used only by the boot-reset gesture (the normal scene renderer isn't up
-// yet here). `size` is the integer font scale; lines are stacked around center.
-static void boot_screen(const char *line1, const char *line2, uint16_t color)
+// flush. Used by the factory-reset gesture overlay. `color` is native RGB565.
+// NOTE: this writes the panel directly; only call it while the render task is not
+// also flushing (the reset gesture pauses normal rendering via s_reset_overlay).
+static void reset_screen(const char *line1, const char *line2, uint16_t color)
 {
     uint16_t *buf = display_back_buffer();
     fb_t fb;
@@ -361,42 +425,23 @@ static void boot_screen(const char *line1, const char *line2, uint16_t color)
     display_flush_and_swap();
 }
 
-// If the user is holding the screen at power-on, count it as a factory-reset
-// gesture: after RESET_HOLD_MS of continuous hold, clear saved Wi-Fi + API key and
-// reboot into the setup AP. Released early -> normal boot. Runs after touch init,
-// before networking/tasks. Returns true if it triggered a reboot (never returns in
-// that case -- esp_restart does not return).
-static void maybe_boot_reset(void)
+// Clear saved Wi-Fi creds + Gemini key and reboot into the setup AP. Called by the
+// logic loop once the screen has been held for RESET_HOLD_MS. Never returns.
+static void factory_reset(void)
 {
-    if (!s_have_touch || !touch_is_down()) {
-        return;   // no finger at boot: normal startup
-    }
-    ESP_LOGI(TAG, "screen held at boot; hold %dms to reset", RESET_HOLD_MS);
-    boot_screen("HOLD TO", "RESET...", rgb565(120, 170, 255));
-
-    uint32_t held = 0;
-    while (held < RESET_HOLD_MS) {
-        vTaskDelay(pdMS_TO_TICKS(50));
-        if (!touch_is_down()) {
-            ESP_LOGI(TAG, "released early; normal boot");
-            return;
-        }
-        held += 50;
-    }
-
-    // Held the full window: clear credentials and reboot. provcfg needs NVS, which
-    // net_init() normally brings up later -- do it inline here (idempotent).
+    // provcfg/NVS are already up by now (net_init ran at startup), but re-init
+    // defensively -- both calls are idempotent.
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         nvs_flash_erase();
         nvs_flash_init();
     }
     provcfg_init();
-    provcfg_clear();          // forget Wi-Fi creds
+    provcfg_clear();           // forget Wi-Fi creds
     provcfg_save_api_key("");  // and the Gemini key
     ESP_LOGW(TAG, "credentials cleared; rebooting into setup AP");
 
-    boot_screen("SETTINGS CLEARED", "JOIN MAGIC-8-BALL-SETUP", rgb565(120, 170, 255));
+    reset_screen("SETTINGS CLEARED", "JOIN MAGIC-8-BALL-SETUP", rgb565(120, 170, 255));
     vTaskDelay(pdMS_TO_TICKS(2500));   // let the user read it
     esp_restart();
 }
@@ -423,12 +468,6 @@ extern "C" void app_main(void)
     if (!s_have_touch) {
         ESP_LOGW(TAG, "touch absent - tap disabled");
     }
-
-    // Boot-time factory-reset gesture: hold the screen at power-on to clear saved
-    // Wi-Fi + API key and reboot into the setup AP. Checked here (display + touch up,
-    // nothing else competing) before networking starts. Reboots and never returns if
-    // the hold completes.
-    maybe_boot_reset();
 
     s_scene_mtx = xSemaphoreCreateMutex();
     if (!s_scene_mtx) {
