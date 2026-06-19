@@ -9,6 +9,7 @@ idf_component_register(
         "test_vad.c"
         "test_animation.c"
         "test_render.c"
+        "test_gemini_wav.c"
         "../../main/gfx/framebuffer.c"
         "../../main/gfx/draw.cpp"
         "../../main/gfx/text.cpp"
@@ -17,6 +18,7 @@ idf_component_register(
         "../../main/scene/listen.c"
         "../../main/scene/vad.c"
         "../../main/scene/animation.cpp"
+        "../../main/net/gemini_wav.c"
         "../../main/render/render.cpp"
         "../../main/render/fx.cpp"
     INCLUDE_DIRS
@@ -25,6 +27,7 @@ idf_component_register(
         "../../main/gfx"
         "../../main/scene"
         "../../main/render"
+        "../../main/net"
     REQUIRES unity
     WHOLE_ARCHIVE
 )
