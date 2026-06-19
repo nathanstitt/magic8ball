@@ -28,6 +28,8 @@
 #include "hal/imu.h"
 #include "hal/touch.h"
 #include "hal/power.h"
+#include "hal/wakeword.h"
+#include "scene/listen.h"
 #include "net/net.h"
 
 static const char *TAG = "magic8";
@@ -38,6 +40,7 @@ static SemaphoreHandle_t s_scene_mtx = NULL;
 
 static bool s_have_imu = false;
 static bool s_have_touch = false;
+static bool s_have_voice = false;
 
 static uint32_t rng(void)
 {
@@ -50,6 +53,9 @@ static void task_logic(void *arg)
     (void)arg;
     sm_t sm;
     sm_init(&sm, rng);
+
+    listen_t listen;
+    listen_init(&listen);
 
     int64_t last_us = esp_timer_get_time();
     state_t prev_state = sm_state(&sm);
@@ -86,6 +92,19 @@ static void task_logic(void *arg)
         }
         if (s_have_imu && imu_is_shaking()) {
             ev = EV_SHAKE;
+        }
+
+        // Voice front-end: pump audio, translate wake+VAD into the existing
+        // shake-hold-release pattern. A real tap/shake this tick wins.
+        if (s_have_voice) {
+            wakeword_update();
+            event_t vev = listen_tick(&listen,
+                                      wakeword_detected(),
+                                      wakeword_speech_active(),
+                                      dt_ms);
+            if (ev == EV_NONE && vev != EV_NONE) {
+                ev = vev;
+            }
         }
 
         // Inject a held message only from a restful state and only when the user
@@ -234,6 +253,7 @@ extern "C" void app_main(void)
     power_init();
     s_have_imu = (imu_init() == 0);
     s_have_touch = (touch_init() == 0);
+    s_have_voice = (wakeword_init() == 0);
     if (!s_have_imu) {
         ESP_LOGW(TAG, "IMU absent - shake disabled");
     }
