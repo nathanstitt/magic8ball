@@ -173,6 +173,12 @@
     "Answer in 5 words or fewer: cryptic, confident, oracular. " \
     "Output only the answer, no punctuation beyond a final period."
 
+// --- Boot reset gesture ---
+// Hold the screen at power-on for this long to clear saved Wi-Fi + API key and
+// reboot into the setup AP (re-provision via the captive portal). Long enough to
+// be deliberate, short enough not to feel stuck.
+#define RESET_HOLD_MS   3000
+
 // --- Colors (R, G, B — 0..255) ---
 // Background liquid: near-black, faint blue lift toward the center.
 #define COL_BG_EDGE_R    2

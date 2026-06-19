@@ -24,6 +24,8 @@
 #include "render/render.h"
 #include "render/fx.h"
 #include "gfx/framebuffer.h"
+#include "gfx/text.h"
+#include "gfx/color.h"
 #include "hal/display.h"
 #include "hal/imu.h"
 #include "hal/touch.h"
@@ -33,8 +35,11 @@
 #include "scene/listen.h"
 #include "scene/answers.h"
 #include "net/net.h"
+#include "net/provcfg.h"
 #include "net/gemini.h"
 #include "esp_heap_caps.h"
+#include "esp_system.h"
+#include "nvs_flash.h"
 
 static const char *TAG = "magic8";
 
@@ -335,6 +340,67 @@ static void task_render(void *arg)
     }
 }
 
+// Draw two centered lines of the 8x8 bitmap font on a freshly-cleared panel and
+// flush. Used only by the boot-reset gesture (the normal scene renderer isn't up
+// yet here). `size` is the integer font scale; lines are stacked around center.
+static void boot_screen(const char *line1, const char *line2, uint16_t color)
+{
+    uint16_t *buf = display_back_buffer();
+    fb_t fb;
+    fb_init(&fb, buf, DISP_W, DISP_H);
+    fb_clear(&fb, rgb565(0, 0, 0));
+
+    const int size = 3;                 // 8x8 font * 3 = 24px tall glyphs
+    const int line_h = 8 * size;
+    int y1 = DISP_H / 2 - line_h;
+    int y2 = DISP_H / 2 + line_h / 2;
+    text_draw(&fb, line1, text_centered_x(&fb, line1, size), y1, size, color, 255);
+    if (line2 && line2[0]) {
+        text_draw(&fb, line2, text_centered_x(&fb, line2, size), y2, size, color, 255);
+    }
+    display_flush_and_swap();
+}
+
+// If the user is holding the screen at power-on, count it as a factory-reset
+// gesture: after RESET_HOLD_MS of continuous hold, clear saved Wi-Fi + API key and
+// reboot into the setup AP. Released early -> normal boot. Runs after touch init,
+// before networking/tasks. Returns true if it triggered a reboot (never returns in
+// that case -- esp_restart does not return).
+static void maybe_boot_reset(void)
+{
+    if (!s_have_touch || !touch_is_down()) {
+        return;   // no finger at boot: normal startup
+    }
+    ESP_LOGI(TAG, "screen held at boot; hold %dms to reset", RESET_HOLD_MS);
+    boot_screen("HOLD TO", "RESET...", rgb565(120, 170, 255));
+
+    uint32_t held = 0;
+    while (held < RESET_HOLD_MS) {
+        vTaskDelay(pdMS_TO_TICKS(50));
+        if (!touch_is_down()) {
+            ESP_LOGI(TAG, "released early; normal boot");
+            return;
+        }
+        held += 50;
+    }
+
+    // Held the full window: clear credentials and reboot. provcfg needs NVS, which
+    // net_init() normally brings up later -- do it inline here (idempotent).
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        nvs_flash_erase();
+        nvs_flash_init();
+    }
+    provcfg_init();
+    provcfg_clear();          // forget Wi-Fi creds
+    provcfg_save_api_key("");  // and the Gemini key
+    ESP_LOGW(TAG, "credentials cleared; rebooting into setup AP");
+
+    boot_screen("SETTINGS CLEARED", "JOIN MAGIC-8-BALL-SETUP", rgb565(120, 170, 255));
+    vTaskDelay(pdMS_TO_TICKS(2500));   // let the user read it
+    esp_restart();
+}
+
 extern "C" void app_main(void)
 {
     ESP_LOGI(TAG, "Magic 8 Ball starting");
@@ -357,6 +423,12 @@ extern "C" void app_main(void)
     if (!s_have_touch) {
         ESP_LOGW(TAG, "touch absent - tap disabled");
     }
+
+    // Boot-time factory-reset gesture: hold the screen at power-on to clear saved
+    // Wi-Fi + API key and reboot into the setup AP. Checked here (display + touch up,
+    // nothing else competing) before networking starts. Reboots and never returns if
+    // the hold completes.
+    maybe_boot_reset();
 
     s_scene_mtx = xSemaphoreCreateMutex();
     if (!s_scene_mtx) {

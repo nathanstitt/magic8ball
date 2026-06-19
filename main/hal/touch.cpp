@@ -81,3 +81,17 @@ bool touch_was_tapped(void)
     s_was_down = down;
     return tapped;
 }
+
+bool touch_is_down(void)
+{
+    if (!s_tp) {
+        return false;
+    }
+    if (esp_lcd_touch_read_data(s_tp) != ESP_OK) {
+        return false;
+    }
+    esp_lcd_touch_point_data_t pts[1];
+    uint8_t cnt = 0;
+    esp_lcd_touch_get_data(s_tp, pts, &cnt, 1);
+    return cnt > 0;
+}
