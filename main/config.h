@@ -36,11 +36,17 @@
 // (MIN_SPEECH_MS + SILENCE_MS) and the LISTEN_MAX_MS backstop remain for a future
 // VAD source that supplies speech_active; they are dormant while it stays false.
 #define MIC_SAMPLE_RATE_HZ  16000  // capture rate the wake-word model expects (16 kHz mono int16)
+// Mic input gain (dB). The codec default captured speech at RMS ~15/32767 -- far too
+// quiet for Gemini. Lift it substantially; tune from the recorder's rms log.
+#define MIC_GAIN_DB         42.0f
 #define PONDER_MS       3000   // wake ponder / in-flight voice ask window (tune on hardware)
 // Hard cap on a voice ask (record + Gemini round-trip). If the voice task hasn't
 // produced text by now, the logic loop reveals a random fallback. Chosen so a real
 // answer about to land always beats this timer. Tune once real latency is known.
-#define VOICE_ASK_MAX_MS 12000
+// Must exceed the true worst-case ask: REC_MAX_MS (8s record) + the Gemini HTTP
+// timeout (15s) + margin. If this is shorter than a real ask, the ponder times out
+// mid-ask and reveals a canned answer, then the real answer lands as a 2nd reveal.
+#define VOICE_ASK_MAX_MS 25000
 
 // --- Recorder + energy VAD (post-wake question capture) ---------------------
 #define REC_FRAME_SAMPLES   480     // 30ms @ 16kHz: one VAD/energy frame
@@ -69,6 +75,12 @@
 #define COL_STAR_R        120
 #define COL_STAR_G        170
 #define COL_STAR_B        255
+// Submitting starfield: once the user stops talking and the Gemini request is in
+// flight, the stars turn white and speed up to read as "thinking/uploading".
+#define STAR_SPEED_SUBMIT 140.0f   // px/s while submitting (faster than listening)
+#define COL_STAR_SUBMIT_R 255
+#define COL_STAR_SUBMIT_G 255
+#define COL_STAR_SUBMIT_B 255
 
 // --- IMU ---
 // Acceleration magnitude in milli-g (1000 = 1g). A vigorous shake exceeds ~1500.
@@ -166,7 +178,7 @@
 // Audio + persona prompt go in one generateContent POST. The model name is a
 // compiled default; the API key is provisioned at runtime (NVS, see provcfg).
 #define GEMINI_HOST     "generativelanguage.googleapis.com"
-#define GEMINI_MODEL    "gemini-2.0-flash"
+#define GEMINI_MODEL    "gemini-2.5-flash"
 #define GEMINI_API_KEY_MAX  64
 #define GEMINI_PROMPT \
     "You are a Magic 8 Ball. The audio contains a yes/no or open question. " \
