@@ -1,5 +1,6 @@
 #include "unity.h"
 #include "render.h"
+#include "fx.h"
 #include "framebuffer.h"
 #include "color.h"
 #include "scene.h"
@@ -144,4 +145,33 @@ TEST_CASE("word wrap never exceeds RENDER_MAX_LINES even for very long text", "[
     char lines[RENDER_MAX_LINES][RENDER_MAX_LINE_LEN];
     int n = render_wrap("one two three four five six seven eight nine ten", narrow, lines);
     TEST_ASSERT_TRUE(n >= 1 && n <= RENDER_MAX_LINES);
+}
+
+TEST_CASE("swirl animates: different phases differ", "[render]")
+{
+    static uint16_t a[DISP_W * DISP_H];
+    static uint16_t b[DISP_W * DISP_H];
+    fb_t fa, fb2;
+    fb_init(&fa, a, DISP_W, DISP_H);
+    fb_init(&fb2, b, DISP_W, DISP_H);
+
+    fx_draw_swirl(&fa, 0.0f);
+    fx_draw_swirl(&fb2, 1.5f);
+
+    TEST_ASSERT_NOT_EQUAL(0, memcmp(a, b, sizeof(a)));
+}
+
+TEST_CASE("swirl center is blue-dominant", "[render]")
+{
+    static uint16_t a[DISP_W * DISP_H];
+    fb_t fa;
+    fb_init(&fa, a, DISP_W, DISP_H);
+    fx_draw_swirl(&fa, 0.0f);
+
+    uint16_t px = fb_get_px(&fa, DISP_CX, DISP_CY);
+    int r = (px >> 11) & 0x1F;
+    int g = (px >> 5) & 0x3F;
+    int b = px & 0x1F;
+    TEST_ASSERT_TRUE(b > r);
+    TEST_ASSERT_TRUE(b * 2 > g);
 }
