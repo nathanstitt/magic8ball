@@ -29,6 +29,11 @@ int  provcfg_clear(void);
 // HTTP handler is structured so enabling auth is a config-only change.
 bool provcfg_load_token(char *tok, size_t cap);
 
+// Gemini API key (voice answers). Stored in the same "m8cfg" NVS namespace.
+// load returns true and copies the key if a non-empty one is stored.
+bool provcfg_load_api_key(char *key, size_t cap);
+int  provcfg_save_api_key(const char *key);
+
 #ifdef __cplusplus
 }
 #endif

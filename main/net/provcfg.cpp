@@ -9,6 +9,7 @@ static const char *TAG = "provcfg";
 #define KEY_SSID      "ssid"
 #define KEY_PASS      "pass"
 #define KEY_TOKEN     "token"
+#define KEY_APIKEY    "apikey"
 
 static bool s_ready = false;
 
@@ -107,4 +108,33 @@ int provcfg_clear(void)
 bool provcfg_load_token(char *tok, size_t cap)
 {
     return read_str(KEY_TOKEN, tok, cap);
+}
+
+bool provcfg_load_api_key(char *key, size_t cap)
+{
+    return read_str(KEY_APIKEY, key, cap);
+}
+
+int provcfg_save_api_key(const char *key)
+{
+    if (!s_ready || !key) {
+        return -1;
+    }
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NS_NAME, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "nvs_open failed: %s", esp_err_to_name(err));
+        return -1;
+    }
+    err = nvs_set_str(h, KEY_APIKEY, key);
+    if (err == ESP_OK) {
+        err = nvs_commit(h);
+    }
+    nvs_close(h);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "api key save failed: %s", esp_err_to_name(err));
+        return -1;
+    }
+    ESP_LOGI(TAG, "saved Gemini API key (%u chars)", (unsigned)strlen(key));
+    return 0;
 }
