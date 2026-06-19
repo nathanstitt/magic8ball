@@ -30,6 +30,17 @@
 #define SILENCE_MS       700   // quiet duration (ms) that counts as "done asking"
 #define MIN_SPEECH_MS    600   // silence can't end the ask until this long after wake
 
+// --- Listening swirl (animated blue cloud background during a voice listen) ---
+#define SWIRL_LAYERS      3       // domain-warped sine layers summed per pixel
+#define SWIRL_SCALE       0.018f  // spatial frequency (1/px); smaller = larger blobs
+#define SWIRL_SPEED       0.6f    // radians/sec the pattern drifts (slow = dreamy)
+#define SWIRL_WARP        2.2f    // domain-warp strength (swirliness)
+#define SWIRL_CONTRAST    0.55f   // 0..1 softness of the blue field (low = soft)
+// Swirl blue (blended over the dark base). Reuses the themed glow blue.
+#define COL_SWIRL_R       30
+#define COL_SWIRL_G       90
+#define COL_SWIRL_B       235
+
 // --- IMU ---
 // Acceleration magnitude in milli-g (1000 = 1g). A vigorous shake exceeds ~1500.
 #define SHAKE_THRESHOLD_MG  1500
