@@ -21,10 +21,12 @@ typedef struct {
 
 void listen_init(listen_t *l);
 
-// Advance one tick. Returns EV_SHAKE while the ball should be pondering (wake
-// fired and the ask isn't finished), otherwise EV_NONE. The caller ORs this into
-// the tick's event (a real tap/shake still wins).
-event_t listen_tick(listen_t *l, bool wake_detected, bool speech_active, uint32_t dt_ms);
+// Advance one tick. `voice_busy` is true while the voice task is recording/awaiting
+// Gemini; it holds the ponder open past PONDER_MS (bounded by VOICE_ASK_MAX_MS) so a
+// real answer is never cut off by the timer. Returns EV_SHAKE while pondering, else
+// EV_NONE. The caller ORs this into the tick's event (a real tap/shake still wins).
+event_t listen_tick(listen_t *l, bool wake_detected, bool speech_active,
+                    bool voice_busy, uint32_t dt_ms);
 
 // True while a voice ask is in progress (wake fired, awaiting the answer). Lets
 // callers react to the listening phase (e.g. show the swirl) without reaching

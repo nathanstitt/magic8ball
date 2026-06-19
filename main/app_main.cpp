@@ -113,6 +113,7 @@ static void task_logic(void *arg)
             event_t vev = listen_tick(&listen,
                                       wakeword_detected(),
                                       wakeword_speech_active(),
+                                      false,
                                       dt_ms);
             if (ev == EV_NONE && vev != EV_NONE) {
                 ev = vev;

@@ -10,7 +10,8 @@ void listen_init(listen_t *l)
     l->state = LISTEN_IDLE;
 }
 
-event_t listen_tick(listen_t *l, bool wake_detected, bool speech_active, uint32_t dt_ms)
+event_t listen_tick(listen_t *l, bool wake_detected, bool speech_active,
+                    bool voice_busy, uint32_t dt_ms)
 {
     if (l->state == LISTEN_IDLE) {
         if (!wake_detected) {
@@ -30,6 +31,17 @@ event_t listen_tick(listen_t *l, bool wake_detected, bool speech_active, uint32_
     // stopped talking" from "answered because we waited long enough" — releasing
     // the held EV_SHAKE is all the downstream state machine needs to reveal.
     l->listen_ms += dt_ms;
+
+    // While the voice task is busy, ignore the normal ponder/silence ends; only the
+    // hard voice cap can end the ask (so a slow Gemini round-trip is never cut off).
+    if (voice_busy) {
+        if (l->listen_ms >= VOICE_ASK_MAX_MS) {
+            l->state = LISTEN_IDLE;
+            return EV_NONE;
+        }
+        return EV_SHAKE;
+    }
+
     if (l->listen_ms >= LISTEN_MAX_MS) {
         l->state = LISTEN_IDLE;
         return EV_NONE;
