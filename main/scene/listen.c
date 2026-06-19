@@ -40,8 +40,14 @@ event_t listen_tick(listen_t *l, bool wake_detected, bool speech_active, uint32_
     } else {
         l->silence_ms += dt_ms;
     }
-    // End the ask only after the user has actually spoken long enough
-    // (min-speech guard) and has then been quiet long enough.
+    // Wake-only flow: no speech signal ever arrives (the one-shot wake detector
+    // gives none), so ponder for a fixed PONDER_MS after the wake, then reveal.
+    if (l->speech_ms == 0 && l->listen_ms >= PONDER_MS) {
+        l->state = LISTEN_IDLE;
+        return EV_NONE;
+    }
+    // Speech-driven end (dormant unless a VAD supplies speech_active): reveal once
+    // the user has spoken long enough (min-speech guard) and then gone quiet.
     if (l->speech_ms >= MIN_SPEECH_MS && l->silence_ms >= SILENCE_MS) {
         l->state = LISTEN_IDLE;
         return EV_NONE;   // release: existing debounce/think-min reveals the answer

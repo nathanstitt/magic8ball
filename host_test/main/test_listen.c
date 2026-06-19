@@ -88,3 +88,31 @@ TEST_CASE("idle ignores stray speech without a wake", "[listen]")
     TEST_ASSERT_EQUAL_INT(EV_NONE, listen_tick(&l, false, true, 100));
     TEST_ASSERT_EQUAL_INT(LISTEN_IDLE, l.state);
 }
+
+TEST_CASE("wake with no speech fires after the fixed ponder", "[listen]")
+{
+    listen_t l;
+    listen_init(&l);
+    listen_tick(&l, true, false, 16);   // wake, and no speech ever follows
+    // Hold through the ponder window; it must release right around PONDER_MS,
+    // well before the LISTEN_MAX_MS backstop.
+    event_t ev = EV_SHAKE;
+    uint32_t elapsed = 16;
+    while (elapsed < PONDER_MS + 200 && ev == EV_SHAKE) {
+        ev = listen_tick(&l, false, false, 100);
+        elapsed += 100;
+    }
+    TEST_ASSERT_EQUAL_INT(EV_NONE, ev);
+    TEST_ASSERT_EQUAL_INT(LISTEN_IDLE, l.state);
+    TEST_ASSERT_TRUE(elapsed < LISTEN_MAX_MS);   // fired via ponder, not the backstop
+}
+
+TEST_CASE("wake holds (ponders) before the fixed window elapses", "[listen]")
+{
+    listen_t l;
+    listen_init(&l);
+    listen_tick(&l, true, false, 16);
+    event_t ev = listen_tick(&l, false, false, PONDER_MS - 500);
+    TEST_ASSERT_EQUAL_INT(EV_SHAKE, ev);   // still pondering
+    TEST_ASSERT_EQUAL_INT(LISTEN_LISTENING, l.state);
+}

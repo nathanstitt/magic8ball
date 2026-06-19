@@ -26,9 +26,15 @@
 #define SHOW_TIMEOUT_MS     90000   // auto-dismiss: after this long showing an answer, fade it out as if tapped
 
 // --- Voice (wake word + VAD listening) -------------------------------------
-#define LISTEN_MAX_MS   8000   // max listening window before answering anyway
+// The micro_wake_word component is a one-shot wake detector: it fires once on the
+// phrase and gives no ongoing post-wake speech signal. So the live flow is "wake
+// -> ponder for PONDER_MS -> answer" (PONDER_MS path). The speech-based end
+// (MIN_SPEECH_MS + SILENCE_MS) and the LISTEN_MAX_MS backstop remain for a future
+// VAD source that supplies speech_active; they are dormant while it stays false.
+#define PONDER_MS       3500   // wake-only ponder: fire this long after wake if no speech seen
+#define LISTEN_MAX_MS   8000   // hard backstop if speech_active never goes quiet
 #define SILENCE_MS       700   // quiet duration (ms) that counts as "done asking"
-#define MIN_SPEECH_MS    600   // silence can't end the ask until this long after wake
+#define MIN_SPEECH_MS    600   // silence can't end the ask until this much speech seen
 
 // --- Listening swirl (animated blue cloud background during a voice listen) ---
 #define SWIRL_LAYERS      3       // domain-warped sine layers summed per pixel
