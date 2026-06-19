@@ -39,8 +39,8 @@ void text_draw(fb_t *fb, const char *s, int x, int y, int size,
                             int px = x + (i * GLYPH_W + col) * size + dx;
                             int py = y + row * size + dy;
                             if (px >= 0 && py >= 0 && px < fb->w && py < fb->h) {
-                                uint16_t dst = fb->px[py * fb->w + px];
-                                fb->px[py * fb->w + px] = rgb565_blend(dst, color, alpha);
+                                uint16_t dst = fb_unpack(fb->px[py * fb->w + px]);
+                                fb->px[py * fb->w + px] = fb_pack(rgb565_blend(dst, color, alpha));
                             }
                         }
                     }
@@ -95,8 +95,8 @@ void text_mb_draw(fb_t *fb, const char *s, int x, int y,
                 }
                 // Combine glyph alpha with caller alpha
                 uint8_t a = (uint8_t)((uint32_t)ga * alpha / 255);
-                uint16_t dst = fb->px[py * fb->w + px];
-                fb->px[py * fb->w + px] = rgb565_blend(dst, color, a);
+                uint16_t dst = fb_unpack(fb->px[py * fb->w + px]);
+                fb->px[py * fb->w + px] = fb_pack(rgb565_blend(dst, color, a));
             }
         }
         cx += g->advance;

@@ -44,7 +44,7 @@ void draw_radial_gradient(fb_t *fb, int cx, int cy, int radius,
             int r = (int)(cr + (er - cr) * t + 0.5f);
             int g = (int)(cg + (eg - cg) * t + 0.5f);
             int b = (int)(cb + (eb - cb) * t + 0.5f);
-            fb->px[y * fb->w + x] = (uint16_t)((r << 11) | (g << 5) | b);
+            fb->px[y * fb->w + x] = fb_pack((uint16_t)((r << 11) | (g << 5) | b));
         }
     }
 }
@@ -54,6 +54,7 @@ void draw_radial_gradient(fb_t *fb, int cx, int cy, int radius,
 // scalar uint16_t at the ragged ends. Caller guarantees 0 <= x_l <= x_r < w.
 static void fill_span_opaque(fb_t *fb, int y, int x_l, int x_r, uint16_t color)
 {
+    color = fb_pack(color);   // store in panel byte order; the replication below is byte-pattern-agnostic
     uint16_t *row = fb->px + (size_t)y * fb->w;
     uint16_t *p = row + x_l;
     uint16_t *end = row + x_r + 1;   // one-past-last
@@ -145,7 +146,7 @@ void draw_triangle(fb_t *fb, int x0, int y0, int x1, int y1, int x2, int y2,
         } else {
             uint16_t *row = fb->px + (size_t)y * fb->w;
             for (int x = span_l; x <= span_r; x++) {
-                row[x] = rgb565_blend(row[x], color, alpha);
+                row[x] = fb_pack(rgb565_blend(fb_unpack(row[x]), color, alpha));
             }
         }
     }
@@ -234,7 +235,7 @@ void draw_triangle_glow(fb_t *fb, int x0, int y0, int x1, int y1, int x2, int y2
                 f = f * f;
                 uint8_t a = (uint8_t)((float)peak_alpha * f);
                 if (a != 0) {
-                    row[x] = rgb565_blend(row[x], color, a);
+                    row[x] = fb_pack(rgb565_blend(fb_unpack(row[x]), color, a));
                 }
             }
             d0 += dx0;
@@ -316,8 +317,8 @@ void draw_triangle_gradient(fb_t *fb, int x0, int y0, int x1, int y1, int x2, in
                 pixel = rgb565_lerp(pixel, bevel_color, bevel * tri);
             }
 
-            uint16_t dst = row[x];
-            row[x] = rgb565_blend(dst, pixel, alpha);
+            uint16_t dst = fb_unpack(row[x]);
+            row[x] = fb_pack(rgb565_blend(dst, pixel, alpha));
         }
     }
 }
@@ -325,8 +326,8 @@ void draw_triangle_gradient(fb_t *fb, int x0, int y0, int x1, int y1, int x2, in
 void draw_particle_color(fb_t *fb, int x, int y, uint8_t alpha, uint16_t color)
 {
     if (x >= 0 && y >= 0 && x < fb->w && y < fb->h) {
-        uint16_t dst = fb->px[y * fb->w + x];
-        fb->px[y * fb->w + x] = rgb565_blend(dst, color, alpha);
+        uint16_t dst = fb_unpack(fb->px[y * fb->w + x]);
+        fb->px[y * fb->w + x] = fb_pack(rgb565_blend(dst, color, alpha));
     }
 }
 
@@ -342,7 +343,7 @@ void draw_circle_clip(fb_t *fb, int cx, int cy, int radius)
         for (int x = 0; x < fb->w; x++) {
             long dx = x - cx, dy = y - cy;
             if (dx * dx + dy * dy > r2) {
-                fb->px[y * fb->w + x] = 0;
+                fb->px[y * fb->w + x] = 0;   // black is byte-swap-invariant
             }
         }
     }
@@ -361,8 +362,8 @@ void draw_glass_arc(fb_t *fb, int cx, int cy, int radius)
         float t = 1.0f - fabsf((deg - 270) / 70.0f);
         uint8_t alpha = (uint8_t)(70 * (t < 0 ? 0 : t));
         if (x >= 0 && y >= 0 && x < fb->w && y < fb->h) {
-            uint16_t dst = fb->px[y * fb->w + x];
-            fb->px[y * fb->w + x] = rgb565_blend(dst, hi, alpha);
+            uint16_t dst = fb_unpack(fb->px[y * fb->w + x]);
+            fb->px[y * fb->w + x] = fb_pack(rgb565_blend(dst, hi, alpha));
         }
     }
 }

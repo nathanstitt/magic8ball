@@ -73,7 +73,9 @@ void fx_init(void)
                     px = rgb565_blend(px, halo_color, a);
                 }
             }
-            s_bg[i] = px;
+            // The bake math above is native RGB565; store s_bg in panel byte order
+            // so the per-frame fx_draw_background memcpy needs no swap.
+            s_bg[i] = fb_pack(px);
         }
     }
     ESP_LOGI(FX_TAG, "fx background baked");
@@ -87,7 +89,7 @@ void fx_draw_background(fb_t *fb, uint8_t murk)
     size_t npx = (size_t)fb->w * fb->h;
 
     if (!s_bg) {
-        uint16_t edge = rgb565(COL_BG_EDGE_R, COL_BG_EDGE_G, COL_BG_EDGE_B);
+        uint16_t edge = fb_pack(rgb565(COL_BG_EDGE_R, COL_BG_EDGE_G, COL_BG_EDGE_B));
         for (size_t i = 0; i < npx; i++) {
             fb->px[i] = edge;
         }

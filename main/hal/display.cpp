@@ -114,18 +114,16 @@ uint16_t *display_back_buffer(void)
 }
 
 
-// Byte-swap a strip from the PSRAM framebuffer (little-endian) into a DMA-capable
-// internal-SRAM bounce buffer in the big-endian order the CO5300 wants. Reading
-// PSRAM once and writing SRAM is far cheaper than the old in-place PSRAM
-// read-modify-write, and DMAing from coherent internal SRAM needs no cache sync.
+// Copy a strip from the PSRAM framebuffer into a DMA-capable internal-SRAM bounce
+// buffer. The framebuffer is ALREADY stored in the panel's byte order (the gfx
+// layer packs every pixel via fb_pack), so no byte-swap is needed here — this is
+// a plain copy. DMAing from coherent internal SRAM also needs no cache sync.
 // `dst` must hold at least (y_end-y)*DISP_W pixels.
 static void prepare_strip(const uint16_t *buf, uint16_t *dst, int y, int y_end)
 {
     const uint16_t *strip = buf + (size_t)y * DISP_W;
-    int strip_px = (y_end - y) * DISP_W;
-    for (int i = 0; i < strip_px; i++) {
-        dst[i] = __builtin_bswap16(strip[i]);
-    }
+    size_t strip_bytes = (size_t)(y_end - y) * DISP_W * 2;
+    memcpy(dst, strip, strip_bytes);
 }
 
 static inline int strip_end(int y)

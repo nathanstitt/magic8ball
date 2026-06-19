@@ -18,8 +18,10 @@ TEST_CASE("fb_clear fills every pixel", "[fb]")
     fb_t fb;
     fb_init(&fb, mem, 8, 4);
     fb_clear(&fb, rgb565(10, 20, 30));
+    // The framebuffer stores pixels in panel byte order, so raw storage is the
+    // packed (byte-swapped) form of the native color passed in.
     for (int i = 0; i < 8 * 4; i++) {
-        TEST_ASSERT_EQUAL_HEX16(rgb565(10, 20, 30), mem[i]);
+        TEST_ASSERT_EQUAL_HEX16(fb_pack(rgb565(10, 20, 30)), mem[i]);
     }
 }
 
@@ -30,7 +32,8 @@ TEST_CASE("fb_set_px writes in-bounds and ignores out-of-bounds", "[fb]")
     fb_init(&fb, mem, 8, 4);
     fb_clear(&fb, 0);
     fb_set_px(&fb, 3, 2, rgb565(255, 255, 255));
-    TEST_ASSERT_EQUAL_HEX16(rgb565(255, 255, 255), mem[2 * 8 + 3]);
+    // Raw storage is the packed (panel byte order) form.
+    TEST_ASSERT_EQUAL_HEX16(fb_pack(rgb565(255, 255, 255)), mem[2 * 8 + 3]);
     // Out-of-bounds writes must not corrupt memory or crash.
     fb_set_px(&fb, -1, 0, rgb565(255, 0, 0));
     fb_set_px(&fb, 8, 0, rgb565(255, 0, 0));
