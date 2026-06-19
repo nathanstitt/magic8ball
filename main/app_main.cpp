@@ -56,6 +56,7 @@ static bool s_have_voice = false;
 // on a wake; the voice task records + asks Gemini, injects the answer (or a random
 // fallback) via the net message queue, then clears s_voice_busy.
 static volatile bool   s_voice_busy = false;
+static volatile bool   s_voice_submitting = false;   // Gemini call in flight (UI: white stars)
 static TaskHandle_t    s_voice_task = NULL;
 
 // Factory-reset gesture overlay. While true, the logic loop owns the panel (drawing
@@ -99,13 +100,17 @@ static void task_voice(void *arg)
         char answer[NET_MSG_MAX] = {0};
         bool got = false;
 
-        // Own the mic: stop wake-word re-arm, record, then ask Gemini.
+        // Own the mic: stop wake-word re-arm, record, then ask Gemini. While the
+        // Gemini call is in flight (recording done), flag "submitting" so the UI turns
+        // the starfield white + fast.
         wakeword_set_armed(false);
         size_t n = 0;
         if (recorder_capture(pcm, REC_MAX_SAMPLES, &n) == 0) {
+            s_voice_submitting = true;
             if (gemini_ask(pcm, n, answer, sizeof(answer)) == 0 && answer[0] != '\0') {
                 got = true;
             }
+            s_voice_submitting = false;
         }
         wakeword_set_armed(true);
 
@@ -172,12 +177,26 @@ static void task_logic(void *arg)
             have_pending = true;
         }
 
+        // Voice-ask lockout: from a wake until the answer is fully revealed, ignore
+        // taps, shakes, and new wakes. Without this, ambient audio re-fires the wake
+        // detector (or a stray tap lands) mid-ask, kicking a second voice task and
+        // re-injecting -- which restarts SHAKING and makes the triangle rise, vanish,
+        // and rise again. The lock starts when a wake kicks the voice task and clears
+        // only once the scene is restful again (SHOWING/IDLE) AND the voice task is no
+        // longer busy. (Always poll touch_was_tapped/is_shaking to keep their edge
+        // state current even while locked.)
+        static bool s_voice_lock = false;
+        bool tapped = s_have_touch && touch_was_tapped();
+        bool shaking = s_have_imu && imu_is_shaking();
+
         event_t ev = EV_NONE;
-        if (s_have_touch && touch_was_tapped()) {
-            ev = EV_TAP;
-        }
-        if (s_have_imu && imu_is_shaking()) {
-            ev = EV_SHAKE;
+        if (!s_voice_lock) {
+            if (tapped) {
+                ev = EV_TAP;
+            }
+            if (shaking) {
+                ev = EV_SHAKE;
+            }
         }
 
         // Factory-reset gesture: hold the screen continuously. Past RESET_ARM_MS we
@@ -223,10 +242,14 @@ static void task_logic(void *arg)
         // stays correct, and 60Hz is ample for tap/shake polling.
         if (s_have_voice) {
             wakeword_update();
-            bool wake = wakeword_detected();
-            // On a fresh wake (and not already mid-ask), kick the voice task.
+            // Drain the wake latch every tick (it self-clears) but honor it only when
+            // not locked, so a re-fire mid-ask/reveal is swallowed instead of kicking
+            // a second ask.
+            bool wake = wakeword_detected() && !s_voice_lock;
+            // On a fresh wake (and not already mid-ask), kick the voice task and lock.
             if (wake && !s_voice_busy && s_voice_task) {
                 s_voice_busy = true;
+                s_voice_lock = true;
                 xTaskNotifyGive(s_voice_task);
             }
             event_t vev = listen_tick(&listen,
@@ -239,14 +262,39 @@ static void task_logic(void *arg)
             }
         }
 
-        // Inject a held message only from a restful state and only when the user
-        // isn't physically interacting this tick (a real tap/shake wins; the
-        // message waits one more 1ms tick). Treating ST_SLEEP as restful gives
-        // wake-on-message for free: sm_trigger_message does SLEEP->SHAKING, and
-        // the panel-power transition below re-enables the display next tick.
-        if (have_pending && ev == EV_NONE) {
+        // Release the voice lock once the ask has finished (voice task idle) and the
+        // answer's reveal is complete (back to a restful state). Until then, inputs
+        // stay suppressed so nothing restarts the in-progress ask/reveal.
+        if (s_voice_lock && !s_voice_busy) {
             state_t st = sm_state(&sm);
-            if (st == ST_IDLE || st == ST_SHOWING || st == ST_SLEEP) {
+            if (st == ST_SHOWING || st == ST_IDLE || st == ST_SLEEP) {
+                s_voice_lock = false;
+            }
+        }
+
+        // Re-poll the queue right here (not just at the loop top) so a voice answer
+        // that the voice task queued THIS tick is injected on the same tick the ponder
+        // releases -- closing the window where SHAKING could tumble into a random
+        // reveal before the answer lands.
+        if (net_poll_message(&inbound)) {
+            pending_msg = inbound;
+            have_pending = true;
+        }
+
+        // Inject a held message. Normally only from a restful state (so a network
+        // POST never aborts a running animation). But a VOICE answer is the result of
+        // the ask currently pondering in SHAKING: inject it straight into that
+        // SHAKING (sm_trigger_message re-enters SHAKING with the custom text), so the
+        // single ponder->tumble->reveal shows the real answer instead of revealing a
+        // random one first and then the answer (a double reveal). s_voice_lock marks
+        // exactly that window (wake -> reveal complete). A pending voice answer wins
+        // even if a stray EV_SHAKE slipped through this tick (st==ST_SHAKING).
+        if (have_pending) {
+            state_t st = sm_state(&sm);
+            bool voice_reveal = s_voice_lock && !s_voice_busy && st == ST_SHAKING;
+            bool restful = (ev == EV_NONE) &&
+                           (st == ST_IDLE || st == ST_SHOWING || st == ST_SLEEP);
+            if (voice_reveal || restful) {
                 sm_trigger_message(&sm, pending_msg.text);
                 have_pending = false;
             }
@@ -295,6 +343,7 @@ static void task_logic(void *arg)
         s_shared_scene.status = first_answer_shown ? NULL : net_status_line();
         s_shared_scene.listening = voice_listening;
         s_shared_scene.star_fade = (uint8_t)s_star_fade;
+        s_shared_scene.submitting = s_voice_submitting;
         xSemaphoreGive(s_scene_mtx);
 
         vTaskDelay(pdMS_TO_TICKS(1));
