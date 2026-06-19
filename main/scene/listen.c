@@ -12,36 +12,35 @@ void listen_init(listen_t *l)
 
 event_t listen_tick(listen_t *l, bool wake_detected, bool speech_active, uint32_t dt_ms)
 {
-    switch (l->state) {
-    case LISTEN_IDLE:
-        if (wake_detected) {
-            l->state = LISTEN_LISTENING;
-            l->listen_ms = 0;
-            l->speech_ms = 0;
-            l->silence_ms = 0;
-            return EV_SHAKE;
+    if (l->state == LISTEN_IDLE) {
+        if (!wake_detected) {
+            return EV_NONE;   // no wake: stay idle, ignore any stray speech
         }
-        return EV_NONE;
-
-    case LISTEN_LISTENING:
-        l->listen_ms += dt_ms;
-        if (l->listen_ms >= LISTEN_MAX_MS) {
-            l->state = LISTEN_IDLE;
-            return EV_NONE;
-        }
-        if (speech_active) {
-            l->speech_ms += dt_ms;
-            l->silence_ms = 0;
-        } else {
-            l->silence_ms += dt_ms;
-        }
-        // End the ask only after the user has actually spoken long enough
-        // (min-speech guard) and has then been quiet long enough.
-        if (l->speech_ms >= MIN_SPEECH_MS && l->silence_ms >= SILENCE_MS) {
-            l->state = LISTEN_IDLE;
-            return EV_NONE;   // release: existing debounce/think-min reveals the answer
-        }
-        return EV_SHAKE;
+        // Wake fired: arm a fresh ask. Fall through so this tick's own speech
+        // and elapsed time count toward the guards below.
+        l->state = LISTEN_LISTENING;
+        l->listen_ms = 0;
+        l->speech_ms = 0;
+        l->silence_ms = 0;
     }
-    return EV_NONE;
+
+    // LISTEN_LISTENING.
+    l->listen_ms += dt_ms;
+    if (l->listen_ms >= LISTEN_MAX_MS) {
+        l->state = LISTEN_IDLE;
+        return EV_NONE;
+    }
+    if (speech_active) {
+        l->speech_ms += dt_ms;
+        l->silence_ms = 0;
+    } else {
+        l->silence_ms += dt_ms;
+    }
+    // End the ask only after the user has actually spoken long enough
+    // (min-speech guard) and has then been quiet long enough.
+    if (l->speech_ms >= MIN_SPEECH_MS && l->silence_ms >= SILENCE_MS) {
+        l->state = LISTEN_IDLE;
+        return EV_NONE;   // release: existing debounce/think-min reveals the answer
+    }
+    return EV_SHAKE;
 }

@@ -67,3 +67,24 @@ TEST_CASE("endless talking fires after the max window", "[listen]")
     TEST_ASSERT_EQUAL_INT(EV_NONE, ev);
     TEST_ASSERT_EQUAL_INT(LISTEN_IDLE, l.state);
 }
+
+TEST_CASE("a fresh wake re-arms after a completed ask", "[listen]")
+{
+    listen_t l;
+    listen_init(&l);
+    listen_tick(&l, true, true, MIN_SPEECH_MS + 16);     // ask 1: wake + talk
+    event_t end = listen_tick(&l, false, false, SILENCE_MS); // ask 1 ends
+    TEST_ASSERT_EQUAL_INT(EV_NONE, end);
+    TEST_ASSERT_EQUAL_INT(LISTEN_IDLE, l.state);
+    event_t ev2 = listen_tick(&l, true, false, 16);
+    TEST_ASSERT_EQUAL_INT(EV_SHAKE, ev2);
+    TEST_ASSERT_EQUAL_INT(LISTEN_LISTENING, l.state);
+}
+
+TEST_CASE("idle ignores stray speech without a wake", "[listen]")
+{
+    listen_t l;
+    listen_init(&l);
+    TEST_ASSERT_EQUAL_INT(EV_NONE, listen_tick(&l, false, true, 100));
+    TEST_ASSERT_EQUAL_INT(LISTEN_IDLE, l.state);
+}
