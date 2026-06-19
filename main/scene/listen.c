@@ -48,3 +48,8 @@ event_t listen_tick(listen_t *l, bool wake_detected, bool speech_active, uint32_
     }
     return EV_SHAKE;
 }
+
+bool listen_is_active(const listen_t *l)
+{
+    return l->state == LISTEN_LISTENING;
+}

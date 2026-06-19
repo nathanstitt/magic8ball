@@ -26,6 +26,11 @@ void listen_init(listen_t *l);
 // the tick's event (a real tap/shake still wins).
 event_t listen_tick(listen_t *l, bool wake_detected, bool speech_active, uint32_t dt_ms);
 
+// True while a voice ask is in progress (wake fired, awaiting the answer). Lets
+// callers react to the listening phase (e.g. show the swirl) without reaching
+// into the FSM's internal state representation.
+bool    listen_is_active(const listen_t *l);
+
 #ifdef __cplusplus
 }
 #endif

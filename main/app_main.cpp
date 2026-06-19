@@ -147,7 +147,7 @@ static void task_logic(void *arg)
         // per-tick scene memcpy; advancing it each tick also defeats the render
         // core's static-frame skip so the swirl actually moves.
         static float s_swirl_phase = 0.0f;
-        bool voice_listening = s_have_voice && (listen.state == LISTEN_LISTENING);
+        bool voice_listening = s_have_voice && listen_is_active(&listen);
         if (voice_listening) {
             s_swirl_phase += SWIRL_SPEED * ((float)dt_ms / 1000.0f);
         } else {
