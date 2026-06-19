@@ -143,10 +143,20 @@ void display_flush_and_swap(void)
     // next, so only one transfer is outstanding at a time — within the SPI
     // queue depth and keeping the swap in lock-step with the DMA).
 
+#ifdef DEBUG_FLUSH_PROFILE
+    int64_t t_swap = 0;
+    int64_t t_wait = 0;
+#endif
     // Prepare + kick the first strip.
     int y = 0;
     int ye = strip_end(y);
+#ifdef DEBUG_FLUSH_PROFILE
+    int64_t _s0 = esp_timer_get_time();
+#endif
     prepare_strip(buf, y, ye);
+#ifdef DEBUG_FLUSH_PROFILE
+    t_swap += esp_timer_get_time() - _s0;
+#endif
     bool inflight = false;
     if (esp_lcd_panel_draw_bitmap(s_panel, 0, y, DISP_W, ye, buf + (size_t)y * DISP_W) == ESP_OK) {
         inflight = true;
@@ -155,12 +165,24 @@ void display_flush_and_swap(void)
     for (int ny = y + STRIP_ROWS; ny < DISP_H; ny += STRIP_ROWS) {
         int nye = strip_end(ny);
         // Prepare the next strip WHILE the current strip's DMA is transferring.
+#ifdef DEBUG_FLUSH_PROFILE
+        int64_t _s1 = esp_timer_get_time();
+#endif
         prepare_strip(buf, ny, nye);
+#ifdef DEBUG_FLUSH_PROFILE
+        t_swap += esp_timer_get_time() - _s1;
+#endif
         // Now wait for the in-flight strip to finish before issuing the next.
         if (inflight) {
+#ifdef DEBUG_FLUSH_PROFILE
+            int64_t _w0 = esp_timer_get_time();
+#endif
             if (xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(100)) != pdTRUE) {
                 ESP_LOGW(TAG, "flush DMA wait timed out");
             }
+#ifdef DEBUG_FLUSH_PROFILE
+            t_wait += esp_timer_get_time() - _w0;
+#endif
             inflight = false;
         }
         if (esp_lcd_panel_draw_bitmap(s_panel, 0, ny, DISP_W, nye, buf + (size_t)ny * DISP_W) == ESP_OK) {
@@ -170,11 +192,20 @@ void display_flush_and_swap(void)
 
     // Wait for the final strip's DMA.
     if (inflight) {
+#ifdef DEBUG_FLUSH_PROFILE
+        int64_t _wl = esp_timer_get_time();
+#endif
         if (xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(100)) != pdTRUE) {
             ESP_LOGW(TAG, "flush DMA wait timed out (last)");
         }
+#ifdef DEBUG_FLUSH_PROFILE
+        t_wait += esp_timer_get_time() - _wl;
+#endif
     }
 
+#ifdef DEBUG_FLUSH_PROFILE
+    ESP_LOGI(TAG, "flush: swap=%dus dma_wait=%dus", (int)t_swap, (int)t_wait);
+#endif
     s_cur ^= 1;
 }
 
