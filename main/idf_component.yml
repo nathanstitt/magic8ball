@@ -12,3 +12,8 @@ dependencies:
   # mDNS so the device is reachable at http://magic8ball.local/message.
   espressif/mdns:
     version: "^1.2.0"
+  # Wake-word detection (microWakeWord, ESPHome-derived standalone port). Pulls
+  # esp-tflite-micro + ESPMicroSpeechFeatures transitively. GPLv3 — fine for this
+  # one-off personal device. Used ONLY by hal/wakeword.cpp; never in host tests.
+  micro_wake_word:
+    git: https://github.com/0xD34D/micro_wake_word_standalone.git
