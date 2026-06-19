@@ -36,7 +36,20 @@
 // (MIN_SPEECH_MS + SILENCE_MS) and the LISTEN_MAX_MS backstop remain for a future
 // VAD source that supplies speech_active; they are dormant while it stays false.
 #define MIC_SAMPLE_RATE_HZ  16000  // capture rate the wake-word model expects (16 kHz mono int16)
-#define PONDER_MS       3500   // wake-only ponder: fire this long after wake if no speech seen
+#define PONDER_MS       10000  // wake ponder / in-flight voice ask window (tune on hardware)
+// Hard cap on a voice ask (record + Gemini round-trip). If the voice task hasn't
+// produced text by now, the logic loop reveals a random fallback. Chosen so a real
+// answer about to land always beats this timer. Tune once real latency is known.
+#define VOICE_ASK_MAX_MS 12000
+
+// --- Recorder + energy VAD (post-wake question capture) ---------------------
+#define REC_FRAME_SAMPLES   480     // 30ms @ 16kHz: one VAD/energy frame
+#define REC_MAX_MS          8000    // hard cap on recording length (must terminate)
+#define REC_MAX_SAMPLES     (MIC_SAMPLE_RATE_HZ / 1000 * REC_MAX_MS)  // 128000 = ~256KB PSRAM
+#define VAD_START_MS        300     // need this much speech before silence can end the ask
+#define VAD_SILENCE_MS      800     // trailing quiet (ms) that ends the ask
+#define VAD_RMS_THRESHOLD   600     // per-frame RMS above this = speech (tune on hardware)
+#define REC_MIN_SAMPLES     (MIC_SAMPLE_RATE_HZ / 2)  // <0.5s captured => treat as garbage, fallback
 #define LISTEN_MAX_MS   8000   // hard backstop if speech_active never goes quiet
 #define SILENCE_MS       700   // quiet duration (ms) that counts as "done asking"
 #define MIN_SPEECH_MS    600   // silence can't end the ask until this much speech seen
@@ -148,6 +161,17 @@
 // lines, Montserrat Bold); 96 leaves headroom. Sized into sm_t.custom_text and
 // the net_msg_t hand-off payload, so the two must agree (see net/net.h).
 #define NET_MSG_MAX     96
+
+// --- Gemini (voice answer) ---
+// Audio + persona prompt go in one generateContent POST. The model name is a
+// compiled default; the API key is provisioned at runtime (NVS, see provcfg).
+#define GEMINI_HOST     "generativelanguage.googleapis.com"
+#define GEMINI_MODEL    "gemini-2.0-flash"
+#define GEMINI_API_KEY_MAX  64
+#define GEMINI_PROMPT \
+    "You are a Magic 8 Ball. The audio contains a yes/no or open question. " \
+    "Answer in 5 words or fewer: cryptic, confident, oracular. " \
+    "Output only the answer, no punctuation beyond a final period."
 
 // --- Colors (R, G, B — 0..255) ---
 // Background liquid: near-black, faint blue lift toward the center.
