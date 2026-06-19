@@ -133,11 +133,14 @@
 #define RENDER_MAX_LINE_LEN  32
 #define TRI_TEXT_MARGIN      16    // px inset from triangle edge to text bounding column
 #define RENDER_LINE_GAP      2     // px between wrapped lines
-// Vertical center of the answer text block. Sits HIGH in the apex-down triangle
-// (top edge ~144, apex ~429) so a tall multi-line answer stays in the wide upper
-// band and its lower lines don't run into the narrowing apex (where they'd be
-// clipped). The apex stays empty, like the reference.
-#define TEXT_CENTER_Y        196
+// Answer-text vertical placement (apex-down triangle: top edge ~144, apex ~429).
+// The block is centered at TEXT_IDEAL_CENTER_Y (≈ the triangle centroid / screen
+// center, so a typical 1-3 line answer looks balanced in the die), but never lets
+// its BOTTOM line fall below TEXT_MAX_BOTTOM_Y — past there the triangle has
+// narrowed too much to fit text. Tall (4-line) answers therefore shift upward just
+// enough to clear the apex, instead of every answer sitting fixed-high.
+#define TEXT_IDEAL_CENTER_Y  233   // screen center; ~the apex-down triangle centroid (~239)
+#define TEXT_MAX_BOTTOM_Y    300   // block bottom may not pass this (triangle still wide here)
 
 // --- Network / custom message ---
 // Max bytes (incl. NUL) of a custom message POSTed over the network and shown in

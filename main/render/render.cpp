@@ -58,16 +58,24 @@ static float tri_half_width_at(float y)
     return half;
 }
 
-// The y of the top of a text block of `nlines` lines, centered on TEXT_CENTER_Y.
+// The y of the top of a text block of `nlines` lines. The block is centered at
+// TEXT_IDEAL_CENTER_Y (balanced in the die) but shifted up if needed so its bottom
+// never passes TEXT_MAX_BOTTOM_Y — so short answers sit centered while tall ones
+// rise just enough to clear the narrowing apex.
 static int text_block_top(int nlines)
 {
     int line_h = text_mb_line_height() + RENDER_LINE_GAP;
     int total_h = nlines * line_h;
-    return TEXT_CENTER_Y - total_h / 2;
+    int top = TEXT_IDEAL_CENTER_Y - total_h / 2;
+    int bottom = top + total_h;
+    if (bottom > TEXT_MAX_BOTTOM_Y) {
+        top -= (bottom - TEXT_MAX_BOTTOM_Y);   // shift the whole block up
+    }
+    return top;
 }
 
 // Usable pixel width for each of `nlines` rows when the block is centered on
-// TEXT_CENTER_Y. Each line is measured at its own mid-y inside the apex-down
+// the block center. Each line is measured at its own mid-y inside the apex-down
 // triangle and inset by TRI_TEXT_MARGIN both sides. Fills widths[0..nlines-1].
 static void tri_line_widths(int nlines, int widths[RENDER_MAX_LINES])
 {
@@ -158,7 +166,7 @@ static void render_text(fb_t *fb, const scene_t *sc)
     int nlines = render_wrap(sc->text, widths, lines);
 
     // Pass 2: now that we know nlines, lay the block out centered on
-    // TEXT_CENTER_Y, recompute each line's true width at its final y, and
+    // the block center, recompute each line's true width at its final y, and
     // re-wrap so the wrap matches where the text actually sits.
     tri_line_widths(nlines, widths);
     nlines = render_wrap(sc->text, widths, lines);
