@@ -17,6 +17,10 @@ idf_component_register(
         "hal/mic.cpp"
         "hal/wakeword.cpp"
         "scene/listen.c"
+        "scene/vad.c"
+        "hal/recorder.cpp"
+        "net/gemini.cpp"
+        "net/gemini_wav.c"
         "net/net.cpp"
         "net/provcfg.cpp"
         "net/wifi.cpp"
@@ -45,6 +49,8 @@ idf_component_register(
         esp_netif
         nvs_flash
         esp_http_server
+        esp_http_client
+        esp-tls
         lwip
         mdns
 )
