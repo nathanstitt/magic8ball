@@ -66,6 +66,7 @@ static void task_voice(void *arg)
                                                MALLOC_CAP_SPIRAM);
     if (!pcm) {
         ESP_LOGE(TAG, "voice: OOM capture buffer; voice answers disabled");
+        s_voice_task = NULL;   // let the logic core's `&& s_voice_task` guard skip us
         vTaskDelete(NULL);
         return;
     }
