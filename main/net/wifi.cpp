@@ -80,6 +80,18 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
         esp_ip4addr_ntoa(&ev->ip_info.ip, ip, sizeof(ip));
         s_retry = 0;
         s_sta_connected = true;
+
+        // Set a fallback (backup) DNS server. Some routers hand out a flaky or empty
+        // DNS via DHCP, which surfaced as getaddrinfo() error 202 when resolving the
+        // Gemini host. DHCP's primary DNS stays as the main server; this only adds a
+        // public backup (Google 8.8.8.8) so name resolution degrades gracefully.
+        esp_netif_dns_info_t dns = {};
+        dns.ip.type = ESP_IPADDR_TYPE_V4;
+        dns.ip.u_addr.ip4.addr = esp_ip4addr_aton("8.8.8.8");
+        if (s_netif_sta) {
+            esp_netif_set_dns_info(s_netif_sta, ESP_NETIF_DNS_BACKUP, &dns);
+        }
+
         xEventGroupSetBits(s_eg, BIT_CONNECTED);
         if (s_on_ip) {
             s_on_ip(ip);
