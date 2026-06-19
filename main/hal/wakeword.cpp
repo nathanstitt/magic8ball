@@ -1,8 +1,106 @@
 #include "wakeword.h"
+#include "mic.h"
+#include "esp_log.h"
 
-// Stub until a later task wires microWakeWord. init returns -1 so app_main treats
-// voice as unavailable (shake/tap still work).
-int  wakeword_init(void) { return -1; }
-void wakeword_update(void) {}
-bool wakeword_detected(void) { return false; }
-bool wakeword_speech_active(void) { return false; }
+#include "esphome/components/micro_wake_word/micro_wake_word.h"
+#include "esphome/components/microphone/microphone.h"
+
+#include <string>
+
+// Embedded "Hey Jarvis" TFLite model: hey_jarvis_tflite[] / hey_jarvis_tflite_len.
+#include "hey_jarvis_model.h"
+
+static const char *TAG = "wakeword";
+
+// Probability cutoff / sliding-window / arena-size tuning come straight from the
+// component's hey_jarvis_detection example -- the values are paired with this
+// specific model, so they live here rather than as config.h tunables.
+#define WW_PROBABILITY_CUTOFF   0.97f
+#define WW_SLIDING_WINDOW       5
+#define WW_TENSOR_ARENA_SIZE    22940
+#define WW_FEATURES_STEP_SIZE   10
+
+// Latch set from the detection callback, drained edge-triggered by
+// wakeword_detected(). volatile: written from the component's loop() context,
+// read on the same core-0 tick but kept honest against the optimizer.
+static volatile bool s_detected = false;
+
+// Adapts the board mic (mic.cpp / esp_codec_dev) to the esphome Microphone
+// interface the wake-word component reads through. start()/stop() only flip the
+// state_ the component polls via is_running()/is_stopped(); the codec itself is
+// opened once in wakeword_init() and left running (cheap, and re-opening on
+// every one-shot re-arm would add latency).
+class BspMicrophone : public esphome::microphone::Microphone {
+ public:
+    void start() override { this->state_ = esphome::microphone::STATE_RUNNING; }
+    void stop() override { this->state_ = esphome::microphone::STATE_STOPPED; }
+
+    // The component calls read(buf, len) with len in BYTES and treats the return
+    // value as BYTES read (verified against MicroWakeWord::read_microphone_(),
+    // which passes INPUT_BUFFER_SIZE * sizeof(int16_t) and the bundled
+    // I2SAudioMicrophone's 16-bit path returns bytes_read). mic_read works in
+    // samples, so convert in and out.
+    size_t read(int16_t *buf, size_t len) override {
+        size_t samples = len / sizeof(int16_t);
+        if (samples == 0) {
+            return 0;
+        }
+        size_t got = mic_read(buf, samples);
+        return got * sizeof(int16_t);
+    }
+};
+
+static BspMicrophone s_mic;
+static esphome::micro_wake_word::MicroWakeWord s_ww;
+
+int wakeword_init(void)
+{
+    if (mic_init() != 0) {
+        ESP_LOGE(TAG, "mic_init failed; voice disabled");
+        return -1;
+    }
+
+    s_ww.set_microphone(&s_mic);
+    s_ww.add_wake_word_model(hey_jarvis_tflite, WW_PROBABILITY_CUTOFF,
+                             WW_SLIDING_WINDOW, "Hey Jarvis",
+                             WW_TENSOR_ARENA_SIZE);
+    s_ww.set_features_step_size(WW_FEATURES_STEP_SIZE);
+    s_ww.add_detection_callback([](std::string) { s_detected = true; });
+
+    s_ww.setup();
+    s_ww.start();
+
+    if (!s_ww.is_running()) {
+        ESP_LOGE(TAG, "micro_wake_word failed to start (model/arena/buffers)");
+        return -1;
+    }
+
+    ESP_LOGI(TAG, "wake-word detector running");
+    return 0;
+}
+
+void wakeword_update(void)
+{
+    s_ww.loop();
+    // micro_wake_word is a one-shot detector: on a hit it stops the mic and
+    // returns to IDLE. Re-arm so we keep listening for the next phrase.
+    if (!s_ww.is_running()) {
+        s_ww.start();
+    }
+}
+
+bool wakeword_detected(void)
+{
+    if (s_detected) {
+        s_detected = false;
+        return true;
+    }
+    return false;
+}
+
+bool wakeword_speech_active(void)
+{
+    // This component is wake-word only (no VAD); it gives no post-wake speech
+    // signal. The FSM uses a fixed PONDER_MS instead.
+    return false;
+}

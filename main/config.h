@@ -31,6 +31,7 @@
 // -> ponder for PONDER_MS -> answer" (PONDER_MS path). The speech-based end
 // (MIN_SPEECH_MS + SILENCE_MS) and the LISTEN_MAX_MS backstop remain for a future
 // VAD source that supplies speech_active; they are dormant while it stays false.
+#define MIC_SAMPLE_RATE_HZ  16000  // capture rate the wake-word model expects (16 kHz mono int16)
 #define PONDER_MS       3500   // wake-only ponder: fire this long after wake if no speech seen
 #define LISTEN_MAX_MS   8000   // hard backstop if speech_active never goes quiet
 #define SILENCE_MS       700   // quiet duration (ms) that counts as "done asking"
