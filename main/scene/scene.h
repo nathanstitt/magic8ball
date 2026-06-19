@@ -73,6 +73,14 @@ typedef struct {
     // touches it, so scene/ stays networking-free and host-testable.
     const char *status;
 
+    // Listening swirl (presentation-only, set by app_main during a VOICE listen;
+    // never touched by the state machine). `listening` selects the animated swirl
+    // background over the static gradient; `swirl_phase` advances each tick so the
+    // swirl animates AND so the render core's static-frame-skip memcmp sees each
+    // listening frame as different (forcing a redraw). See render/fx.cpp.
+    bool     listening;
+    float    swirl_phase;
+
     // Particles.
     particle_t particles[SCENE_MAX_PARTICLES];
     int        particle_count;
