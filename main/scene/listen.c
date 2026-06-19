@@ -24,7 +24,11 @@ event_t listen_tick(listen_t *l, bool wake_detected, bool speech_active, uint32_
         l->silence_ms = 0;
     }
 
-    // LISTEN_LISTENING.
+    // LISTEN_LISTENING. Both terminal paths below (the max-window backstop here
+    // and the min-speech+silence end further down) intentionally return the same
+    // EV_NONE + LISTEN_IDLE: the caller does not distinguish "answered because you
+    // stopped talking" from "answered because we waited long enough" — releasing
+    // the held EV_SHAKE is all the downstream state machine needs to reveal.
     l->listen_ms += dt_ms;
     if (l->listen_ms >= LISTEN_MAX_MS) {
         l->state = LISTEN_IDLE;
