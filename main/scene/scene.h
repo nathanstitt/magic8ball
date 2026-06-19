@@ -84,6 +84,10 @@ typedef struct {
     // keeps each frame distinct, so the render core's static-skip never skips it.
     bool     listening;
     uint8_t  star_fade;
+    // Submitting flag (presentation-only, set by app_main while the Gemini request is
+    // in flight, i.e. after the user stops talking). Recolors the starfield white and
+    // speeds it up so "thinking/uploading" looks distinct from "listening" (blue).
+    bool     submitting;
 
     // Particles.
     particle_t particles[SCENE_MAX_PARTICLES];

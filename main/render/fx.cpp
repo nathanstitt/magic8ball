@@ -106,7 +106,10 @@ void fx_draw_particles(fb_t *fb, const scene_t *sc)
         // rises. Half the stars (odd index) are large (4x4), half small (2x2) for
         // size variety. Each star's stored (faint) alpha maps onto the STAR_ALPHA
         // range so they twinkle, then is scaled by star_fade for the dissolve.
-        uint16_t star = rgb565(COL_STAR_R, COL_STAR_G, COL_STAR_B);
+        // White + faster while the Gemini request is in flight; blue while listening.
+        uint16_t star = sc->submitting
+            ? rgb565(COL_STAR_SUBMIT_R, COL_STAR_SUBMIT_G, COL_STAR_SUBMIT_B)
+            : rgb565(COL_STAR_R, COL_STAR_G, COL_STAR_B);
         for (int i = 0; i < sc->particle_count; i++) {
             const particle_t *p = &sc->particles[i];
             int base = STAR_ALPHA_MIN +

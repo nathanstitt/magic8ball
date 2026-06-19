@@ -31,6 +31,10 @@ int recorder_capture(int16_t *buf, size_t cap, size_t *out_samples)
 
     size_t total = 0;
     const uint32_t frame_ms = REC_FRAME_SAMPLES * 1000 / MIC_SAMPLE_RATE_HZ;
+    uint32_t rms_min = 0xffffffffu;
+    uint32_t rms_max = 0;
+    uint64_t rms_sum = 0;
+    uint32_t nframes = 0;
 
     while (total + REC_FRAME_SAMPLES <= cap) {
         size_t got = mic_read(buf + total, REC_FRAME_SAMPLES);
@@ -39,6 +43,14 @@ int recorder_capture(int16_t *buf, size_t cap, size_t *out_samples)
             break;
         }
         uint32_t rms = frame_rms(buf + total, got);
+        if (rms < rms_min) {
+            rms_min = rms;
+        }
+        if (rms > rms_max) {
+            rms_max = rms;
+        }
+        rms_sum += rms;
+        nframes++;
         total += got;
         if (vad_feed(&v, rms, frame_ms)) {
             break;
@@ -46,6 +58,12 @@ int recorder_capture(int16_t *buf, size_t cap, size_t *out_samples)
     }
 
     *out_samples = total;
+    // Temporary tuning log: shows the RMS range seen so VAD_RMS_THRESHOLD can be set
+    // from data (it should sit between silence rms_min and speech rms_max).
+    ESP_LOGI(TAG, "rms min=%u avg=%u max=%u (threshold=%d)",
+             (unsigned)(nframes ? rms_min : 0),
+             (unsigned)(nframes ? rms_sum / nframes : 0),
+             (unsigned)rms_max, VAD_RMS_THRESHOLD);
     if (total < REC_MIN_SAMPLES) {
         ESP_LOGW(TAG, "captured only %u samples (<%d); fallback",
                  (unsigned)total, REC_MIN_SAMPLES);

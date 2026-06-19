@@ -344,6 +344,9 @@ void anim_step_particles(scene_t *sc, uint32_t dt_ms, int state)
     // wander rather than drift in a line. Outside that, they keep their slow idle
     // drift unchanged.
     bool flit = (state == ST_SHAKING);
+    // Stars move faster while a request is being submitted (white) than while just
+    // listening (blue), to read as "thinking/uploading".
+    float star_speed = sc->submitting ? STAR_SPEED_SUBMIT : STAR_SPEED;
     for (int i = 0; i < sc->particle_count; i++) {
         particle_t *p = &sc->particles[i];
         if (flit) {
@@ -352,8 +355,8 @@ void anim_step_particles(scene_t *sc, uint32_t dt_ms, int state)
                 p->flit_ms = 0;
                 p->rng = p->rng * 1664525u + 1013904223u;      // LCG
                 float ang = (float)(p->rng >> 8) * (6.2831853f / 16777216.0f);
-                p->vx = cosf(ang) * STAR_SPEED;
-                p->vy = sinf(ang) * STAR_SPEED;
+                p->vx = cosf(ang) * star_speed;
+                p->vy = sinf(ang) * star_speed;
             }
         }
         p->x += p->vx * dt;
