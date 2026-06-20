@@ -6,6 +6,7 @@
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
+#include "esp_timer.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -50,15 +51,22 @@ static bool extract_text(const char *json, char *out, size_t cap)
 }
 
 struct resp_ctx {
-    char  *buf;
-    size_t cap;
-    size_t len;
+    char    *buf;
+    size_t   cap;
+    size_t   len;
+    int64_t  first_byte_us;   // timestamp of the first response-data event (0 = none yet)
+    int64_t  last_byte_us;    // timestamp of the most recent response-data event
 };
 
 static esp_err_t on_http_event(esp_http_client_event_t *evt)
 {
     if (evt->event_id == HTTP_EVENT_ON_DATA && evt->user_data) {
         struct resp_ctx *ctx = (struct resp_ctx *)evt->user_data;
+        int64_t now = esp_timer_get_time();
+        if (ctx->first_byte_us == 0) {
+            ctx->first_byte_us = now;
+        }
+        ctx->last_byte_us = now;
         size_t n = evt->data_len;
         if (ctx->len + n >= ctx->cap) {
             n = ctx->cap - ctx->len - 1;
@@ -82,6 +90,8 @@ int gemini_ask(const int16_t *pcm, size_t samples, char *out, size_t cap)
         ESP_LOGW(TAG, "no API key provisioned; fallback");
         return -1;
     }
+
+    int64_t t_start = esp_timer_get_time();
 
     size_t pcm_bytes = samples * sizeof(int16_t);
     size_t wav_bytes = 44 + pcm_bytes;
@@ -131,7 +141,7 @@ int gemini_ask(const int16_t *pcm, size_t samples, char *out, size_t cap)
         return -1;
     }
     resp[0] = '\0';
-    struct resp_ctx ctx = { resp, RESP_CAP, 0 };
+    struct resp_ctx ctx = { resp, RESP_CAP, 0, 0, 0 };
 
     esp_http_client_config_t cfg = {};
     cfg.url = url;
@@ -145,9 +155,24 @@ int gemini_ask(const int16_t *pcm, size_t samples, char *out, size_t cap)
     esp_http_client_set_header(client, "Content-Type", "application/json");
     esp_http_client_set_post_field(client, body, body_len);
 
+    int64_t t_perform = esp_timer_get_time();   // prep done; about to connect+send+recv
     int rc = -1;
     esp_err_t err = esp_http_client_perform(client);
+    int64_t t_done = esp_timer_get_time();
     int status = esp_http_client_get_status_code(client);
+
+    // Timing breakdown (ms). prep = WAV+base64+JSON build. ttfb = connect + upload +
+    // Gemini processing until the first response byte (the long pole). recv = first to
+    // last response byte. The triangle could begin rising at t_perform (request sent)
+    // to overlap the ttfb window. wav_bytes shows the upload size driving the upload.
+    int prep_ms = (int)((t_perform - t_start) / 1000);
+    int ttfb_ms = ctx.first_byte_us ? (int)((ctx.first_byte_us - t_perform) / 1000) : -1;
+    int recv_ms = (ctx.first_byte_us && ctx.last_byte_us)
+                  ? (int)((ctx.last_byte_us - ctx.first_byte_us) / 1000) : -1;
+    int total_ms = (int)((t_done - t_start) / 1000);
+    ESP_LOGI(TAG, "timing: prep=%dms ttfb=%dms recv=%dms total=%dms (upload=%uKB)",
+             prep_ms, ttfb_ms, recv_ms, total_ms, (unsigned)(wav_bytes / 1024));
+
     if (err == ESP_OK && status == 200) {
         if (extract_text(resp, out, cap)) {
             ESP_LOGI(TAG, "answer: \"%s\"", out);
