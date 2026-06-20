@@ -147,6 +147,36 @@ TEST_CASE("word wrap never exceeds RENDER_MAX_LINES even for very long text", "[
     TEST_ASSERT_TRUE(n >= 1 && n <= RENDER_MAX_LINES);
 }
 
+TEST_CASE("word wrap balances across rows instead of leaving lone words", "[render]")
+{
+    // Rows roomy enough that "seldom favor" fits together on one line. A greedy
+    // wrap would strand "Felines"/"seldom" on their own lines; the balanced wrap
+    // should pair words rather than leave a ragged lone-word line. We assert no
+    // interior line is a single short word while a neighbor could have held it --
+    // concretely, that the layout uses <= 3 lines (balanced) not 4 (ragged).
+    const int widths[RENDER_MAX_LINES] = {360, 330, 290, 250};
+    char lines[RENDER_MAX_LINES][RENDER_MAX_LINE_LEN];
+    int n = render_wrap("Felines seldom favor corn", widths, lines);
+    TEST_ASSERT_TRUE(n <= 3);
+    // Every emitted line is non-empty.
+    for (int i = 0; i < n; i++) {
+        TEST_ASSERT_TRUE(lines[i][0] != '\0');
+    }
+}
+
+TEST_CASE("word wrap is top-heavy (more words on the wider upper rows)", "[render]")
+{
+    // Apex-down triangle narrows downward, so the wrap should put more on top.
+    // "Body knows best" can't all fit one line here but "Body knows" fits the top
+    // row -> expect "Body knows" / "best", not the lopsided "Body" / "knows best".
+    const int widths[RENDER_MAX_LINES] = {300, 250, 220, 200};
+    char lines[RENDER_MAX_LINES][RENDER_MAX_LINE_LEN];
+    int n = render_wrap("Body knows best", widths, lines);
+    TEST_ASSERT_EQUAL_INT(2, n);
+    TEST_ASSERT_EQUAL_STRING("Body knows", lines[0]);
+    TEST_ASSERT_EQUAL_STRING("best", lines[1]);
+}
+
 TEST_CASE("listening starfield renders brighter blue stars", "[render]")
 {
     static uint16_t lis[DISP_W * DISP_H];
@@ -176,7 +206,7 @@ TEST_CASE("listening starfield renders brighter blue stars", "[render]")
                           fb_get_px(&fi, DISP_CX, DISP_CY));
 }
 
-TEST_CASE("listening star pixel is blue-dominant", "[render]")
+TEST_CASE("listening star pixel is white (bright on all channels)", "[render]")
 {
     static uint16_t buf[DISP_W * DISP_H];
     fb_t fb;
@@ -190,6 +220,34 @@ TEST_CASE("listening star pixel is blue-dominant", "[render]")
     s.particles[0].y = (float)DISP_CY;
     s.particles[0].alpha = 255;   // bright so the star color dominates the base
     s.star_fade = 255;
+    s.submitting = false;          // listening phase -> white stars
+    render_frame(&fb, &s);
+
+    uint16_t px = fb_get_px(&fb, DISP_CX, DISP_CY);
+    int r = (px >> 11) & 0x1F;   // 0..31
+    int g = (px >> 5) & 0x3F;    // 0..63
+    int b = px & 0x1F;           // 0..31
+    // White: all channels lifted high; no single channel dominates.
+    TEST_ASSERT_TRUE(r > 18);
+    TEST_ASSERT_TRUE(g > 36);
+    TEST_ASSERT_TRUE(b > 18);
+}
+
+TEST_CASE("submitting star pixel is blue-dominant", "[render]")
+{
+    static uint16_t buf[DISP_W * DISP_H];
+    fb_t fb;
+    fb_init(&fb, buf, DISP_W, DISP_H);
+
+    scene_t s = {0};
+    s.state = ST_SHAKING;
+    s.pyr_cx = DISP_CX;
+    s.particle_count = 1;
+    s.particles[0].x = (float)DISP_CX;
+    s.particles[0].y = (float)DISP_CY;
+    s.particles[0].alpha = 255;
+    s.star_fade = 255;
+    s.submitting = true;           // processing phase -> blue stars
     render_frame(&fb, &s);
 
     uint16_t px = fb_get_px(&fb, DISP_CX, DISP_CY);

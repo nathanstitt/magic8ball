@@ -27,11 +27,13 @@
 // These are derived from the projected resting face but kept as tunables so the
 // layout never depends on glm (render.cpp stays host-testable).
 // Geometry of the locked, face-on front triangle as projected to the screen
-// (apex DOWN). Derived from PYRAMID_RADIUS=196 with focal=600: top edge near
-// y=144, apex near y=429, top half-width ~155px. Text is laid out inside this.
-#define TRI_TOP_HW      155.0f   // half-width of the top edge (px)
-#define TRI_TOP_Y       144      // y of the flat top edge
-#define TRI_APEX_Y      429      // y of the bottom apex
+// (apex DOWN). Derived from PYRAMID_RADIUS=245 with focal=600 (scaled 1.25x about
+// the y=233 center so the tips extend a little past the screen edges): top edge
+// near y=122, apex near y=478, top half-width ~194px. Text is laid out inside this.
+// Keep these in step with PYRAMID_RADIUS (they scale proportionally about center).
+#define TRI_TOP_HW      194.0f   // half-width of the top edge (px)
+#define TRI_TOP_Y       122      // y of the flat top edge
+#define TRI_APEX_Y      478      // y of the bottom apex
 // FONT_LINE_H is obtained at runtime from text_mb_line_height() (the Montserrat
 // Bold cell height) so render.cpp never reaches into the font header directly.
 
@@ -94,65 +96,214 @@ static void tri_line_widths(int nlines, int widths[RENDER_MAX_LINES])
     }
 }
 
+// Max words we balance across lines. 8-ball answers are short (now <=5 words by the
+// prompt); a hard cap keeps the brute-force partition search trivially cheap and
+// bounds the stack arrays. Extra words beyond this spill onto the last line.
+#define WRAP_MAX_WORDS  12
+
+// Width (px) of `count` words [first..first+count) joined by single spaces, using
+// the precomputed per-word widths and the space width.
+static int joined_width(const int word_px[WRAP_MAX_WORDS], int space_px,
+                        int first, int count)
+{
+    if (count <= 0) {
+        return 0;
+    }
+    int w = 0;
+    for (int i = 0; i < count; i++) {
+        w += word_px[first + i];
+    }
+    w += space_px * (count - 1);
+    return w;
+}
+
+// Best-fit (balanced) word wrap. Greedy filling leaves ragged lines (e.g. a lone
+// word on a wide row while a later narrow row overflows). Instead we try every way
+// to split the words into 1..RENDER_MAX_LINES contiguous lines, keep only layouts
+// where every line fits its row's width (line_widths[i], which narrows toward the
+// apex), and pick the one with the FEWEST lines, then — among those — the most
+// balanced (smallest widest-line, i.e. least raggedness). Falls back to a greedy
+// fit if nothing fits cleanly (very long words), so it always produces something.
 int render_wrap(const char *s, const int line_widths[RENDER_MAX_LINES],
                 char lines[RENDER_MAX_LINES][RENDER_MAX_LINE_LEN])
 {
-    int n = 0;
-    int cur = 0;
-    lines[0][0] = '\0';
+    // Tokenize into word slices + per-word pixel widths.
+    const char *wstart[WRAP_MAX_WORDS];
+    int         wlen_arr[WRAP_MAX_WORDS];
+    int         word_px[WRAP_MAX_WORDS];
+    int nwords = 0;
 
-    const char *word = s;
-    while (*word) {
-        const char *end = word;
+    const char *p = s ? s : "";
+    while (*p && nwords < WRAP_MAX_WORDS) {
+        while (*p == ' ') {
+            p++;
+        }
+        if (!*p) {
+            break;
+        }
+        const char *end = p;
         while (*end && *end != ' ') {
             end++;
         }
-        int wlen = (int)(end - word);
-        if (wlen == 0) {
-            word++;
-            continue;
-        }
-
+        int wl = (int)(end - p);
         char tmp[RENDER_MAX_LINE_LEN];
-        int tl = wlen < RENDER_MAX_LINE_LEN - 1 ? wlen : RENDER_MAX_LINE_LEN - 1;
+        int tl = wl < RENDER_MAX_LINE_LEN - 1 ? wl : RENDER_MAX_LINE_LEN - 1;
         for (int i = 0; i < tl; i++) {
-            tmp[i] = word[i];
+            tmp[i] = p[i];
         }
         tmp[tl] = '\0';
+        wstart[nwords] = p;
+        wlen_arr[nwords] = tl;
+        word_px[nwords] = text_mb_width(tmp);
+        nwords++;
+        p = end;
+    }
 
-        int word_px = text_mb_width(tmp);
-        int space_px = text_mb_width(" ");
-        int need = (cur == 0) ? word_px : cur + space_px + word_px;
+    int space_px = text_mb_width(" ");
 
-        if (need > line_widths[n] && cur > 0) {
-            n++;
-            if (n >= RENDER_MAX_LINES) {
-                n = RENDER_MAX_LINES - 1;
-                break;
+    if (nwords == 0) {
+        lines[0][0] = '\0';
+        return 1;
+    }
+
+    // Search for the best partition into contiguous lines. break_at[k] = index of
+    // the first word on line k+1. We enumerate via a recursive-free loop over the
+    // number of lines and break positions. With <=12 words and <=4 lines the space
+    // is tiny, so an explicit nested search over up to 3 interior break points is
+    // both exhaustive and cheap.
+    int best_counts[RENDER_MAX_LINES];   // words per line in the best layout
+    int best_nlines = 0;
+    int best_score = 0x7fffffff;         // lower = better (fewer lines, then less ragged)
+
+    // Enumerate target line counts from 1..RENDER_MAX_LINES; prefer fewer lines.
+    for (int k = 1; k <= RENDER_MAX_LINES && k <= nwords; k++) {
+        // Distribute nwords into k contiguous non-empty groups: choose k-1 interior
+        // break points among positions 1..nwords-1. Iterate all combinations.
+        int brk[RENDER_MAX_LINES];   // brk[0..k-2] interior breaks; sentinels added
+        // Initialize the lexicographically-first combination: 1,2,...,k-1.
+        for (int i = 0; i < k - 1; i++) {
+            brk[i] = i + 1;
+        }
+        bool more = true;
+        while (more) {
+            // Build line word-counts from the break points.
+            int counts[RENDER_MAX_LINES];
+            int prev = 0;
+            for (int i = 0; i < k - 1; i++) {
+                counts[i] = brk[i] - prev;
+                prev = brk[i];
             }
-            cur = 0;
-            lines[n][0] = '\0';
-            need = word_px;
-        }
+            counts[k - 1] = nwords - prev;
 
-        int pos = (int)strlen(lines[n]);
-        if (cur > 0 && pos < RENDER_MAX_LINE_LEN - 1) {
-            lines[n][pos] = ' ';
-            pos++;
-        }
-        for (int i = 0; i < tl && pos < RENDER_MAX_LINE_LEN - 1; i++) {
-            lines[n][pos] = word[i];
-            pos++;
-        }
-        lines[n][pos] = '\0';
-        cur = need;
+            // Check fit against each row's width and compute the widest line.
+            bool fits = true;
+            int widest = 0;
+            int first = 0;
+            for (int i = 0; i < k; i++) {
+                int lw = joined_width(word_px, space_px, first, counts[i]);
+                if (lw > line_widths[i]) {
+                    fits = false;
+                    break;
+                }
+                if (lw > widest) {
+                    widest = lw;
+                }
+                first += counts[i];
+            }
+            if (fits) {
+                // Score (lower = better). Fewer lines dominates. Then prefer a
+                // TOP-HEAVY fill: the apex-down triangle narrows downward (each lower
+                // row holds less), so more text belongs on the wider upper rows. We
+                // reward early fullness by summing each line's width weighted MORE for
+                // earlier lines; negate it so "more up top" lowers the score. This
+                // makes "Body knows / best" beat "Body / knows best".
+                int topheavy = 0;
+                int first2 = 0;
+                for (int i = 0; i < k; i++) {
+                    int lw = joined_width(word_px, space_px, first2, counts[i]);
+                    topheavy += lw * (k - i);   // earlier line -> bigger weight
+                    first2 += counts[i];
+                }
+                (void)widest;
+                int score = (k << 20) - topheavy;
+                if (score < best_score) {
+                    best_score = score;
+                    best_nlines = k;
+                    for (int i = 0; i < k; i++) {
+                        best_counts[i] = counts[i];
+                    }
+                }
+            }
 
-        word = end;
-        while (*word == ' ') {
-            word++;
+            // Advance to the next combination of interior break points.
+            if (k == 1) {
+                more = false;
+            } else {
+                int i = k - 2;
+                while (i >= 0 && brk[i] >= nwords - (k - 1 - i)) {
+                    i--;
+                }
+                if (i < 0) {
+                    more = false;
+                } else {
+                    brk[i]++;
+                    for (int j = i + 1; j < k - 1; j++) {
+                        brk[j] = brk[j - 1] + 1;
+                    }
+                }
+            }
+        }
+        // Prefer the fewest lines that fit: once a line count fits, stop searching
+        // larger counts (they'd only add lines).
+        if (best_nlines == k) {
+            break;
         }
     }
-    return n + 1;
+
+    // Fallback: nothing fit cleanly (e.g. a single word wider than its row). Use a
+    // simple greedy fill so we still render something rather than nothing.
+    if (best_nlines == 0) {
+        int n = 0;
+        int first = 0;
+        int counts[RENDER_MAX_LINES] = {0};
+        int cur = 0;
+        for (int w = 0; w < nwords; w++) {
+            int need = (counts[n] == 0) ? word_px[w]
+                                        : cur + space_px + word_px[w];
+            if (counts[n] > 0 && need > line_widths[n] && n < RENDER_MAX_LINES - 1) {
+                n++;
+                cur = word_px[w];
+                counts[n] = 1;
+            } else {
+                cur = need;
+                counts[n]++;
+            }
+        }
+        (void)first;
+        best_nlines = n + 1;
+        for (int i = 0; i < best_nlines; i++) {
+            best_counts[i] = counts[i];
+        }
+    }
+
+    // Emit the chosen partition into the line buffers.
+    int first = 0;
+    for (int i = 0; i < best_nlines; i++) {
+        int pos = 0;
+        for (int j = 0; j < best_counts[i]; j++) {
+            if (j > 0 && pos < RENDER_MAX_LINE_LEN - 1) {
+                lines[i][pos++] = ' ';
+            }
+            const char *ws = wstart[first + j];
+            int wl = wlen_arr[first + j];
+            for (int c = 0; c < wl && pos < RENDER_MAX_LINE_LEN - 1; c++) {
+                lines[i][pos++] = ws[c];
+            }
+        }
+        lines[i][pos] = '\0';
+        first += best_counts[i];
+    }
+    return best_nlines;
 }
 
 static void render_text(fb_t *fb, const scene_t *sc)
