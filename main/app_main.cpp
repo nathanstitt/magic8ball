@@ -153,6 +153,11 @@ static void task_logic(void *arg)
     // latch this on the first SHOWING and stop publishing the status line.
     bool first_answer_shown = false;
 
+    // Voice latency overlap: time spent submitting, and whether we've kicked off the
+    // speculative (text-pending) rise for the current ask yet.
+    uint32_t submit_ms = 0;
+    bool pending_rise_started = false;
+
     while (true) {
         int64_t now_us = esp_timer_get_time();
         uint32_t dt_ms = (uint32_t)((now_us - last_us) / 1000);
@@ -189,12 +194,21 @@ static void task_logic(void *arg)
         bool tapped = s_have_touch && touch_was_tapped();
         bool shaking = s_have_imu && imu_is_shaking();
 
+        // Post-answer shake cooldown: counts down after an answer is revealed (set on
+        // the ST_SHOWING transition below). While >0, shakes are ignored so jostling
+        // the device to read the answer doesn't trigger a new ask. Taps still work.
+        static uint32_t s_shake_cooldown_ms = 0;
+        if (s_shake_cooldown_ms > 0) {
+            s_shake_cooldown_ms = (dt_ms >= s_shake_cooldown_ms) ? 0
+                                                                 : (s_shake_cooldown_ms - dt_ms);
+        }
+
         event_t ev = EV_NONE;
         if (!s_voice_lock) {
             if (tapped) {
                 ev = EV_TAP;
             }
-            if (shaking) {
+            if (shaking && s_shake_cooldown_ms == 0) {
                 ev = EV_SHAKE;
             }
         }
@@ -250,6 +264,8 @@ static void task_logic(void *arg)
             if (wake && !s_voice_busy && s_voice_task) {
                 s_voice_busy = true;
                 s_voice_lock = true;
+                pending_rise_started = false;   // fresh ask
+                submit_ms = 0;
                 xTaskNotifyGive(s_voice_task);
             }
             event_t vev = listen_tick(&listen,
@@ -260,6 +276,22 @@ static void task_logic(void *arg)
             if (ev == EV_NONE && vev != EV_NONE) {
                 ev = vev;
             }
+        }
+
+        // Voice latency overlap: once the Gemini request has been in flight for
+        // SUBMIT_RISE_DELAY_MS, start the triangle rising BLANK (text-pending) so the
+        // rise overlaps the ~5.5s round-trip instead of following it. It locks face-on
+        // and holds (glow pulsing) until the answer lands. Only from the ponder
+        // (SHAKING) of this voice ask, and only once per ask.
+        if (s_voice_submitting) {
+            submit_ms += dt_ms;
+            if (!pending_rise_started && submit_ms >= SUBMIT_RISE_DELAY_MS
+                && sm_state(&sm) == ST_SHAKING) {
+                sm_start_pending_rise(&sm);
+                pending_rise_started = true;
+            }
+        } else {
+            submit_ms = 0;
         }
 
         // Release the voice lock once the ask has finished (voice task idle) and the
@@ -291,12 +323,22 @@ static void task_logic(void *arg)
         // even if a stray EV_SHAKE slipped through this tick (st==ST_SHAKING).
         if (have_pending) {
             state_t st = sm_state(&sm);
-            bool voice_reveal = s_voice_lock && !s_voice_busy && st == ST_SHAKING;
-            bool restful = (ev == EV_NONE) &&
-                           (st == ST_IDLE || st == ST_SHOWING || st == ST_SLEEP);
-            if (voice_reveal || restful) {
-                sm_trigger_message(&sm, pending_msg.text);
+            // A speculative rise is already underway for this voice ask: fill its text
+            // (the held rise/lock reveals it) instead of starting a fresh animation.
+            if (pending_rise_started &&
+                (st == ST_TUMBLING || st == ST_LOCKING)) {
+                sm_set_pending_text(&sm, pending_msg.text);
                 have_pending = false;
+                pending_rise_started = false;
+            } else {
+                bool voice_reveal = s_voice_lock && !s_voice_busy && st == ST_SHAKING;
+                bool restful = (ev == EV_NONE) &&
+                               (st == ST_IDLE || st == ST_SHOWING || st == ST_SLEEP);
+                if (voice_reveal || restful) {
+                    sm_trigger_message(&sm, pending_msg.text);
+                    have_pending = false;
+                    pending_rise_started = false;
+                }
             }
         }
 
@@ -313,6 +355,8 @@ static void task_logic(void *arg)
             // The first time an answer is fully shown, retire the status overlay.
             if (st == ST_SHOWING) {
                 first_answer_shown = true;
+                // Start the shake cooldown so reading the answer can't trigger a re-ask.
+                s_shake_cooldown_ms = SHOW_SHAKE_COOLDOWN_MS;
             }
             prev_state = st;
         }

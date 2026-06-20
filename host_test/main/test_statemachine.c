@@ -189,3 +189,37 @@ TEST_CASE("tap during locking does not abort the snap", "[sm]")
     sm_tick(&sm, EV_TAP, 16);                     // tap mid-lock
     TEST_ASSERT_EQUAL_INT(ST_LOCKING, sm_state(&sm));
 }
+
+TEST_CASE("pending rise holds at lock until text arrives, then shows", "[sm]")
+{
+    sm_t sm = make_sm();
+    // Speculative rise with no answer: jumps straight to TUMBLING, text pending.
+    sm_start_pending_rise(&sm);
+    TEST_ASSERT_EQUAL_INT(ST_TUMBLING, sm_state(&sm));
+
+    sm_tick(&sm, EV_NONE, TUMBLE_MS + 50);   // -> LOCKING
+    TEST_ASSERT_EQUAL_INT(ST_LOCKING, sm_state(&sm));
+
+    // Lock time elapses but text still pending: must HOLD in LOCKING, not advance.
+    sm_tick(&sm, EV_NONE, LOCK_MS + 500);
+    TEST_ASSERT_EQUAL_INT(ST_LOCKING, sm_state(&sm));
+    TEST_ASSERT_EQUAL_INT(0, sm_scene(&sm)->text_alpha);   // text hidden while held
+
+    // Answer arrives: fills the text and releases the hold.
+    sm_set_pending_text(&sm, "All signs say yes");
+    sm_tick(&sm, EV_NONE, LOCK_MS + 50);     // fade plays out -> SHOWING
+    TEST_ASSERT_EQUAL_INT(ST_SHOWING, sm_state(&sm));
+    TEST_ASSERT_EQUAL_STRING("All signs say yes", sm_scene(&sm)->text);
+}
+
+TEST_CASE("pending rise that gets its text mid-tumble still shows it", "[sm]")
+{
+    sm_t sm = make_sm();
+    sm_start_pending_rise(&sm);
+    // Answer arrives while still rising (TUMBLING) -- text just becomes ready.
+    sm_set_pending_text(&sm, "Soon");
+    sm_tick(&sm, EV_NONE, TUMBLE_MS + 50);   // -> LOCKING
+    sm_tick(&sm, EV_NONE, LOCK_MS + 50);     // -> SHOWING (no hold; text was ready)
+    TEST_ASSERT_EQUAL_INT(ST_SHOWING, sm_state(&sm));
+    TEST_ASSERT_EQUAL_STRING("Soon", sm_scene(&sm)->text);
+}

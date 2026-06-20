@@ -28,6 +28,12 @@ typedef struct {
     // whole animation. Filled by sm_trigger_message().
     char     custom_text[NET_MSG_MAX];
     bool     has_custom;
+
+    // Deferred-text rise (voice latency overlap). When set, the die rises and locks
+    // face-on with NO text yet, then HOLDS in ST_LOCKING (glow pulsing) until the
+    // answer arrives via sm_set_pending_text(), which clears this and lets LOCKING
+    // advance to ST_SHOWING. Lets the rise start during the Gemini round-trip.
+    bool     text_pending;
 } sm_t;
 
 void     sm_init(sm_t *sm, rng_fn rng);
@@ -41,6 +47,18 @@ const scene_t *sm_scene(const sm_t *sm);
 // answer. The caller MUST only invoke this from a restful state (ST_IDLE /
 // ST_SHOWING / ST_SLEEP) so a running animation is never aborted.
 void     sm_trigger_message(sm_t *sm, const char *text);
+
+// Start a speculative rise with NO answer yet (voice latency overlap): jumps
+// straight to ST_TUMBLING with text_pending set, so the die rises and locks blank
+// while the Gemini call finishes. Call only from a restful state (same contract as
+// sm_trigger_message). Pair with sm_set_pending_text() once the answer lands.
+void     sm_start_pending_rise(sm_t *sm);
+
+// Supply the answer for a pending rise started by sm_start_pending_rise(): fills the
+// text and clears text_pending so a held ST_LOCKING advances to ST_SHOWING (the text
+// fades in). Safe to call any time after the rise starts; if the die is still
+// rising/locking it simply has its text ready when it reaches SHOWING.
+void     sm_set_pending_text(sm_t *sm, const char *text);
 
 #ifdef __cplusplus
 }

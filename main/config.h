@@ -71,20 +71,35 @@
 #define STAR_FADE_MS      1200    // ms for the starfield to fade out once the answer rises
 #define STAR_ALPHA_MIN    120     // listening stars are brighter than the faint idle motes
 #define STAR_ALPHA_MAX    255
-// Star blue (the themed glow blue, brighter than the faint idle particles).
-#define COL_STAR_R        120
-#define COL_STAR_G        170
+// Listening starfield color: WHITE while the user is talking (distinct from the
+// blue "processing" phase below).
+#define COL_STAR_R        255
+#define COL_STAR_G        255
 #define COL_STAR_B        255
 // Submitting starfield: once the user stops talking and the Gemini request is in
-// flight, the stars turn white and speed up to read as "thinking/uploading".
+// flight, the stars turn the themed glow BLUE and speed up to read as "thinking".
 #define STAR_SPEED_SUBMIT 140.0f   // px/s while submitting (faster than listening)
-#define COL_STAR_SUBMIT_R 255
-#define COL_STAR_SUBMIT_G 255
+#define COL_STAR_SUBMIT_R 120
+#define COL_STAR_SUBMIT_G 170
 #define COL_STAR_SUBMIT_B 255
 
 // --- IMU ---
 // Acceleration magnitude in milli-g (1000 = 1g). A vigorous shake exceeds ~1500.
 #define SHAKE_THRESHOLD_MG  1500
+// After an answer is revealed, ignore shakes for this long: it's easy to jostle the
+// device while picking it up to read, which would otherwise trigger a new ask. Taps
+// still work (a deliberate tap to re-ask is fine).
+#define SHOW_SHAKE_COOLDOWN_MS  10000
+
+// --- Voice latency overlap (speculative rise during the Gemini round-trip) ---
+// After submission begins, start the triangle rising this long in so the rise
+// overlaps the ~5.5s wait instead of following it. If the answer isn't ready when
+// the die locks face-on, it holds (blank, glow pulsing) until the answer lands.
+#define SUBMIT_RISE_DELAY_MS    3000
+// Glow pulse while holding for the answer: period (ms) and how deep it dips from
+// full (0..1; 0.25 = glow breathes between 0.75 and 1.0).
+#define PENDING_PULSE_MS        1400
+#define PENDING_PULSE_DEPTH     0.25f
 
 // --- Particles ---
 #define PARTICLE_COUNT      24
@@ -93,7 +108,7 @@
 // Circumradius (px) of the tetrahedron at pyr_scale=1. Sized so the locked
 // front face fills most of the 233px-radius circle with a small dark liquid
 // margin (the classic Magic 8 Ball die framed in fluid).
-#define PYRAMID_RADIUS      196.0f
+#define PYRAMID_RADIUS      245.0f
 #define PYRAMID_FOCAL       600.0f   // perspective focal length (pixels)
 #define PYRAMID_LIGHT_X     0.5f
 #define PYRAMID_LIGHT_Y     0.8f
@@ -158,14 +173,14 @@
 #define RENDER_MAX_LINE_LEN  32
 #define TRI_TEXT_MARGIN      16    // px inset from triangle edge to text bounding column
 #define RENDER_LINE_GAP      2     // px between wrapped lines
-// Answer-text vertical placement (apex-down triangle: top edge ~144, apex ~429).
+// Answer-text vertical placement (apex-down triangle: top edge ~122, apex ~478).
 // The block is centered at TEXT_IDEAL_CENTER_Y (≈ the triangle centroid / screen
 // center, so a typical 1-3 line answer looks balanced in the die), but never lets
 // its BOTTOM line fall below TEXT_MAX_BOTTOM_Y — past there the triangle has
 // narrowed too much to fit text. Tall (4-line) answers therefore shift upward just
 // enough to clear the apex, instead of every answer sitting fixed-high.
-#define TEXT_IDEAL_CENTER_Y  233   // screen center; ~the apex-down triangle centroid (~239)
-#define TEXT_MAX_BOTTOM_Y    300   // block bottom may not pass this (triangle still wide here)
+#define TEXT_IDEAL_CENTER_Y  233   // screen center; ~the apex-down triangle centroid
+#define TEXT_MAX_BOTTOM_Y    317   // block bottom may not pass this (triangle still wide here)
 
 // --- Network / custom message ---
 // Max bytes (incl. NUL) of a custom message POSTed over the network and shown in
@@ -182,8 +197,8 @@
 #define GEMINI_API_KEY_MAX  64
 #define GEMINI_PROMPT \
     "You are a Magic 8 Ball. The audio contains a yes/no or open question. " \
-    "Answer in 5 words or fewer: cryptic, confident, oracular. " \
-    "Output only the answer, no punctuation beyond a final period."
+    "Answer in 5 short words or fewer in a oracular but realistic manner " \
+    "Output only the answer, no punctuation, preferring shorter words"
 
 // --- Factory-reset gesture (hold screen during normal use) ---
 // Hold the screen continuously. Past RESET_ARM_MS a "keep holding" countdown overlay

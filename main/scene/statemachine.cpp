@@ -68,7 +68,44 @@ void sm_trigger_message(sm_t *sm, const char *text)
     }
     sm->custom_text[i] = '\0';
     sm->has_custom = true;
+    sm->text_pending = false;
     enter(sm, ST_SHAKING);   // resets state_ms/quiet_ms/answer_chosen
+}
+
+void sm_start_pending_rise(sm_t *sm)
+{
+    // Speculative rise: no answer yet. Pick an answer_index only to seed the tumble
+    // motion (it is never shown). text stays empty until sm_set_pending_text().
+    sm->answer_index = answers_pick(&sm->picker);
+    sm->answer_chosen = true;
+    sm->has_custom = true;        // the eventual text comes from custom_text
+    sm->custom_text[0] = '\0';
+    sm->text_pending = true;
+    sm->scene.text = sm->custom_text;
+    sm->scene.text_seq++;
+    enter(sm, ST_TUMBLING);       // straight to the rise; skip SHAKING/ponder
+}
+
+void sm_set_pending_text(sm_t *sm, const char *text)
+{
+    size_t i = 0;
+    if (text) {
+        for (; text[i] && i < (size_t)(NET_MSG_MAX - 1); i++) {
+            sm->custom_text[i] = text[i];
+        }
+    }
+    sm->custom_text[i] = '\0';
+    sm->has_custom = true;
+    bool was_pending = sm->text_pending;
+    sm->text_pending = false;     // releases a held ST_LOCKING -> ST_SHOWING
+
+    // If the die was already holding locked-and-blank, restart the LOCKING fade so
+    // the text fades in cleanly (state_ms had run past LOCK_MS during the hold, which
+    // would otherwise pop the text in at full alpha). If it's still rising (TUMBLING)
+    // the text simply becomes ready before it locks -- no restart needed.
+    if (was_pending && sm->scene.state == ST_LOCKING) {
+        sm->state_ms = 0;
+    }
 }
 
 void sm_tick(sm_t *sm, event_t ev, uint32_t dt_ms)
@@ -129,8 +166,10 @@ void sm_tick(sm_t *sm, event_t ev, uint32_t dt_ms)
         break;
 
     case ST_LOCKING:
-        // Ignores tap/shake — does not abort.
-        if (sm->state_ms >= LOCK_MS) {
+        // Ignores tap/shake — does not abort. If the answer for a speculative rise
+        // hasn't arrived yet, HOLD here (die locked face-on, blank, glow pulsing)
+        // instead of advancing; sm_set_pending_text() clears text_pending to release.
+        if (sm->state_ms >= LOCK_MS && !sm->text_pending) {
             enter(sm, ST_SHOWING);
         }
         break;
@@ -160,6 +199,10 @@ void sm_tick(sm_t *sm, event_t ev, uint32_t dt_ms)
         }
         break;
     }
+
+    // Mirror the deferred-text flag into the scene so anim_apply can pulse the glow
+    // and hold the text fade during a speculative rise.
+    sc->text_pending = sm->text_pending;
 
     // Particles only drift while the answer is churning/rising; at IDLE,
     // SHOWING and SLEEP they hold still so the render can skip static frames.

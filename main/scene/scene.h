@@ -88,6 +88,10 @@ typedef struct {
     // in flight, i.e. after the user stops talking). Recolors the starfield white and
     // speeds it up so "thinking/uploading" looks distinct from "listening" (blue).
     bool     submitting;
+    // Deferred-text rise: true while the die has risen/locked but the answer text
+    // hasn't arrived yet (voice latency overlap). Drives a pulsing glow + held text
+    // fade-in. Mirrored from sm_t.text_pending each tick.
+    bool     text_pending;
 
     // Particles.
     particle_t particles[SCENE_MAX_PARTICLES];

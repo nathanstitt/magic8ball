@@ -279,6 +279,14 @@ void anim_apply(scene_t *sc, uint32_t state_ms, uint32_t dt_ms)
         sc->pyr_glow = lerpf(TUMBLE_GLOW_MAX, 1.0f, e);
         sc->text_alpha = (uint8_t)(255.0f * e);
         sc->murk = 0;
+        // Deferred-text hold: the die has locked face-on but the answer hasn't landed.
+        // Keep the text hidden and breathe the glow so it reads as "about to speak".
+        if (sc->text_pending) {
+            sc->text_alpha = 0;
+            float ph = (float)((state_ms % PENDING_PULSE_MS)) / (float)PENDING_PULSE_MS;
+            float wave = 0.5f * (1.0f - cosf(ph * 6.2831853f));   // 0..1..0, smooth
+            sc->pyr_glow = 1.0f - PENDING_PULSE_DEPTH * wave;
+        }
         break;
     }
 
