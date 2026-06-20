@@ -11,3 +11,6 @@ host_test/build/
 host_test/sdkconfig
 host_test/managed_components/
 host_test/dependencies.lock
+
+# Design docs / plans — kept out of the repo
+docs/
