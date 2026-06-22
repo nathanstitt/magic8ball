@@ -7,18 +7,17 @@
 
 #include <string>
 
-// Embedded "Hello Computer" TFLite model: hello_computer_tflite[] / _len.
-// Community model from github.com/TaterTotterson/microWakeWords (microWakeWordsV3).
-#include "hello_computer_model.h"
+// Embedded "Magic 8 Ball" microWakeWord TFLite model: magic_8_ball_tflite[] / magic_8_ball_tflite_len.
+#include "magic_8_ball_model.h"
 
 static const char *TAG = "wakeword";
 
 // Per-model tuning straight from the model's published .json metadata (the values
 // it was trained/validated with), so they live here paired with this model.
-// hello_computer.json: probability_cutoff 0.53, sliding_window_size 3,
+// magic_8_ball.json: probability_cutoff 0.9, sliding_window_size 5,
 // feature_step_size 10, tensor_arena_size 30000.
-#define WW_PROBABILITY_CUTOFF   0.53f
-#define WW_SLIDING_WINDOW       3
+#define WW_PROBABILITY_CUTOFF   0.9f
+#define WW_SLIDING_WINDOW       5
 #define WW_FEATURES_STEP_SIZE   10
 // Arena: the model's json asks for 30000; use 48 KB with headroom (allocated from
 // PSRAM, so oversizing is cheap insurance against a silent voice-disable).
@@ -67,8 +66,8 @@ int wakeword_init(void)
     }
 
     s_ww.set_microphone(&s_mic);
-    s_ww.add_wake_word_model(hello_computer_tflite, WW_PROBABILITY_CUTOFF,
-                             WW_SLIDING_WINDOW, "Hello Computer",
+    s_ww.add_wake_word_model(magic_8_ball_tflite, WW_PROBABILITY_CUTOFF,
+                             WW_SLIDING_WINDOW, "Magic 8 Ball",
                              WW_TENSOR_ARENA_SIZE);
     s_ww.set_features_step_size(WW_FEATURES_STEP_SIZE);
     s_ww.add_detection_callback([](std::string) { s_detected = true; });

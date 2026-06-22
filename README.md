@@ -133,6 +133,34 @@ printf '\n*\n' | ./build/magic8ball_host_test.elf
 To re-provision later, **hold the screen** during normal use until the reset
 countdown completes — it clears the saved Wi-Fi + key and returns to the setup AP.
 
+## Changing the wake word
+
+The wake word is an on-device [microWakeWord](https://github.com/nathanstitt/micro_wake_word_standalone)
+TFLite model embedded in the firmware (`main/hal/<phrase>_model.h`, wired up in
+`main/hal/wakeword.cpp`). Swapping it is a two-part job:
+
+**Train + install in one command** (local, Apple-Silicon GPU, no Google Colab):
+
+```bash
+cd wakeword-train
+./make-wakeword.sh "Hey Oracle" --phonetic "hey or-uhkul" --install
+```
+
+That synthesizes samples with Piper TTS, augments + trains on MPS, exports the
+quantized `.tflite`, wires it into `wakeword.cpp`, and builds the firmware. Then
+`idf.py -p <PORT> flash monitor`, say the phrase, and tune `WW_PROBABILITY_CUTOFF`
+on-device if needed. The `wakeword-train/` dir is gitignored; see its README for the
+step-by-step scripts and the shared-dataset caveat (~33 GB, downloaded once).
+
+To install a model you already have (community or pre-trained):
+
+```bash
+scripts/install-wake-word.sh <model.tflite> <model.json> "Phrase"
+```
+
+This generates the C header, wires the 4 tuning constants + the model symbol/label
+into `wakeword.cpp`, and removes the old model.
+
 ## Notes
 
 - The renderer never calls LVGL. The Waveshare BSP pulls LVGL in transitively as a

@@ -193,11 +193,11 @@
 // Audio + persona prompt go in one generateContent POST. The model name is a
 // compiled default; the API key is provisioned at runtime (NVS, see provcfg).
 #define GEMINI_HOST     "generativelanguage.googleapis.com"
-#define GEMINI_MODEL    "gemini-2.5-flash"
+#define GEMINI_MODEL    "gemini-2.5-flash-lite"
 #define GEMINI_API_KEY_MAX  64
 #define GEMINI_PROMPT \
     "You are a Magic 8 Ball. The audio contains a yes/no or open question. " \
-    "Answer in 5 short words or fewer in a oracular but realistic manner " \
+    "Answer in 5 short words or fewer in a oracular but accurate manner " \
     "Output only the answer, no punctuation, preferring shorter words"
 
 // --- Factory-reset gesture (hold screen during normal use) ---

@@ -14,3 +14,6 @@ host_test/dependencies.lock
 
 # Design docs / plans — kept out of the repo
 docs/
+
+# Wake-word training pipeline: venv, multi-GB datasets, model outputs. Local-only.
+wakeword-train/
