@@ -6,12 +6,12 @@
 ## lv_* function. The renderer is a pure software RGB565 pipeline.
 dependencies:
   waveshare/esp32_s3_touch_amoled_1_75:
-    version: "*"
+    version: '*'
   andresragot/glm:
-    version: "^1.0.3"
+    version: ^1.0.3
   # mDNS so the device is reachable at http://magic8ball.local/message.
   espressif/mdns:
-    version: "^1.2.0"
+    version: ^1.2.0
   # Wake-word detection (microWakeWord, ESPHome-derived standalone port). Pulls
   # esp-tflite-micro + ESPMicroSpeechFeatures transitively. GPLv3 — fine for this
   # one-off personal device. Used ONLY by hal/wakeword.cpp; never in host tests.
@@ -21,4 +21,5 @@ dependencies:
   # chip-agnostic esp_rom_crc.h so a clean fetch builds. See the fork's HEAD.
   micro_wake_word:
     git: https://github.com/nathanstitt/micro_wake_word_standalone.git
-    version: "1600f14f4e8face6681ced745da9377727bf2296"
+    version: 1600f14f4e8face6681ced745da9377727bf2296
+  kevincoooool/pmic_axp2101: '*'

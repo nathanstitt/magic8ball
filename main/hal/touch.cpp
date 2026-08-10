@@ -25,7 +25,9 @@ extern "C" i2c_master_bus_handle_t bsp_i2c_get_handle(void);
 
 static const char *TAG = "touch";
 static esp_lcd_touch_handle_t s_tp = NULL;
-static bool s_was_down = false;
+static bool s_was_down = false;   // level at the previous poll (for edge detect)
+static bool s_down = false;       // level latched by the last touch_poll()
+static bool s_tapped = false;     // fresh-down edge latched by the last touch_poll()
 
 int touch_init(void)
 {
@@ -61,15 +63,20 @@ int touch_init(void)
     return 0;
 }
 
-bool touch_was_tapped(void)
+void touch_poll(void)
 {
     if (!s_tp) {
-        return false;
+        s_down = false;
+        s_tapped = false;
+        s_was_down = false;
+        return;
     }
 
     if (esp_lcd_touch_read_data(s_tp) != ESP_OK) {
+        s_down = false;
+        s_tapped = false;
         s_was_down = false;
-        return false;
+        return;
     }
 
     esp_lcd_touch_point_data_t pts[1];
@@ -77,21 +84,17 @@ bool touch_was_tapped(void)
     esp_lcd_touch_get_data(s_tp, pts, &cnt, 1);
 
     bool down = (cnt > 0);
-    bool tapped = (down && !s_was_down);
+    s_tapped = (down && !s_was_down);
+    s_down = down;
     s_was_down = down;
-    return tapped;
+}
+
+bool touch_was_tapped(void)
+{
+    return s_tapped;
 }
 
 bool touch_is_down(void)
 {
-    if (!s_tp) {
-        return false;
-    }
-    if (esp_lcd_touch_read_data(s_tp) != ESP_OK) {
-        return false;
-    }
-    esp_lcd_touch_point_data_t pts[1];
-    uint8_t cnt = 0;
-    esp_lcd_touch_get_data(s_tp, pts, &cnt, 1);
-    return cnt > 0;
+    return s_down;
 }

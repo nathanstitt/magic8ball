@@ -70,6 +70,7 @@ static volatile bool   s_force_render = false;
 // Defined below app_main's helpers; used by task_logic above them.
 static void reset_screen(const char *line1, const char *line2, uint16_t color);
 static void factory_reset(void);
+static void low_battery_shutdown(void);
 
 static uint32_t rng(void)
 {
@@ -174,6 +175,20 @@ static void task_logic(void *arg)
             dt_ms = DT_MAX_MS;
         }
 
+        // Low-battery watchdog: poll the fuel gauge every BATT_POLL_MS. At/below
+        // BATT_LOW_PCT while running on the battery (not on USB), warn on-screen
+        // then cut power. Charging (USB present) never triggers it. The gauge read
+        // is slow I2C, hence the coarse interval. -1 = no PMIC / gauge unsettled.
+        static uint32_t s_batt_poll_ms = 0;
+        s_batt_poll_ms += dt_ms;
+        if (s_batt_poll_ms >= BATT_POLL_MS) {
+            s_batt_poll_ms = 0;
+            int pct = power_battery_percent();
+            if (pct >= 0 && pct <= BATT_LOW_PCT && !power_is_charging()) {
+                low_battery_shutdown();   // never returns
+            }
+        }
+
         // Drain the newest inbound network message (non-blocking). Replacing any
         // older held message keeps "latest wins" even if one was waiting.
         net_msg_t inbound;
@@ -191,6 +206,13 @@ static void task_logic(void *arg)
         // longer busy. (Always poll touch_was_tapped/is_shaking to keep their edge
         // state current even while locked.)
         static bool s_voice_lock = false;
+        // Read the touch controller once per tick; touch_was_tapped()/is_down()
+        // below are getters over this single latch. (Polling it twice a tick
+        // made the reset gesture flicker down/up on release, freezing the
+        // "KEEP HOLDING" overlay because s_reset_overlay kept re-asserting.)
+        if (s_have_touch) {
+            touch_poll();
+        }
         bool tapped = s_have_touch && touch_was_tapped();
         bool shaking = s_have_imu && imu_is_shaking();
 
@@ -537,6 +559,23 @@ static void factory_reset(void)
     reset_screen("SETTINGS CLEARED", "JOIN MAGIC-8-BALL-SETUP", rgb565(120, 170, 255));
     vTaskDelay(pdMS_TO_TICKS(2500));   // let the user read it
     esp_restart();
+}
+
+// Battery has hit BATT_LOW_PCT on battery power: show a warning for BATT_WARN_MS,
+// then command the PMIC to cut the battery rail. Takes the panel directly (same
+// contract as reset_screen -- the render task must not be flushing; here we just
+// never return, so it stops mattering). Re-plugging USB reboots the board.
+static void low_battery_shutdown(void)
+{
+    ESP_LOGW(TAG, "battery low (<=%d%%) - shutting down", BATT_LOW_PCT);
+    s_reset_overlay = true;   // stop the render task from fighting us for the panel
+    reset_screen("BATTERY LOW", "SHUTTING DOWN", rgb565(255, 90, 60));
+    vTaskDelay(pdMS_TO_TICKS(BATT_WARN_MS));
+    display_set_brightness(0);   // blank before the rail drops (avoids a bright flash)
+    power_shutdown();            // PMIC off
+    // If there's no PMIC (power_shutdown is a no-op), don't spin forever re-warning:
+    // just halt this task quietly with the panel dark.
+    vTaskDelay(portMAX_DELAY);
 }
 
 extern "C" void app_main(void)

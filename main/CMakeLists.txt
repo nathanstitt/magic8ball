@@ -34,6 +34,8 @@ idf_component_register(
         esp_mm
         waveshare__esp32_s3_touch_amoled_1_75
         waveshare__esp_lcd_touch_cst9217
+        # AXP2101 PMIC: charge config, fuel gauge, software power-off.
+        kevincoooool__pmic_axp2101
         # Voice: wake-word detector + audio codec capture (BSP mic).
         # ESPMicroSpeechFeatures is pulled in transitively because
         # micro_wake_word.h includes its frontend_util.h header.

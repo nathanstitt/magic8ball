@@ -48,6 +48,20 @@
 // mid-ask and reveals a canned answer, then the real answer lands as a 2nd reveal.
 #define VOICE_ASK_MAX_MS 25000
 
+// --- Power / battery (AXP2101 PMIC) -----------------------------------------
+// Charge params for the connected LiPo cell (<=500 mAh). Values are AXP2101
+// register-field codes (see axp2101.h enums; kept as literals so config.h stays
+// dependency-free): 0x09 = 300mA fast-charge CC (<=1C, safe for a small cell),
+// 0x03 = 4.20V CV target.
+#define BATT_CHARGE_CURRENT   0x09    // AXP2101_CHG_CURR_300MA
+#define BATT_CHARGE_VOLTAGE   0x03    // AXP2101_CHG_VOLT_4V20
+// Low-battery shutdown: poll the fuel gauge; at/below this SoC (and not on USB),
+// show a warning for BATT_WARN_MS, then command the PMIC off. Polling every
+// BATT_POLL_MS keeps the slow I2C read off the hot path.
+#define BATT_LOW_PCT          15
+#define BATT_WARN_MS          5000
+#define BATT_POLL_MS          10000
+
 // --- Recorder + energy VAD (post-wake question capture) ---------------------
 #define REC_FRAME_SAMPLES   480     // 30ms @ 16kHz: one VAD/energy frame
 #define REC_MAX_MS          8000    // hard cap on recording length (must terminate)
