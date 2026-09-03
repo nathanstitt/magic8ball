@@ -176,16 +176,40 @@ static void task_logic(void *arg)
         }
 
         // Low-battery watchdog: poll the fuel gauge every BATT_POLL_MS. At/below
-        // BATT_LOW_PCT while running on the battery (not on USB), warn on-screen
-        // then cut power. Charging (USB present) never triggers it. The gauge read
-        // is slow I2C, hence the coarse interval. -1 = no PMIC / gauge unsettled.
+        // BATT_LOW_PCT while running on the battery, warn on-screen then cut power.
+        // The gauge read is slow I2C, hence the coarse interval.
+        //
+        // Every guard here exists because a bogus reading must never be able to
+        // power the board off: the gauge reads 0 while settling after boot, so we
+        // ignore it for BATT_BOOT_GRACE_MS, require BATT_LOW_STREAK consecutive low
+        // polls, gate on VBUS (not charge phase -- see power_is_vbus_present), and
+        // cross-check the VBAT ADC. Any single guard disagreeing resets the streak.
         static uint32_t s_batt_poll_ms = 0;
+        static uint32_t s_batt_uptime_ms = 0;
+        static int s_batt_low_streak = 0;
         s_batt_poll_ms += dt_ms;
+        s_batt_uptime_ms += dt_ms;
         if (s_batt_poll_ms >= BATT_POLL_MS) {
             s_batt_poll_ms = 0;
-            int pct = power_battery_percent();
-            if (pct >= 0 && pct <= BATT_LOW_PCT && !power_is_charging()) {
-                low_battery_shutdown();   // never returns
+            if (s_batt_uptime_ms < BATT_BOOT_GRACE_MS) {
+                // still settling; don't even read the gauge
+            } else if (power_is_vbus_present() || !power_is_battery_present()) {
+                s_batt_low_streak = 0;   // on external power, or no cell to protect
+            } else {
+                int pct = power_battery_percent();
+                int mv  = power_battery_mv();
+                bool low = (pct > 0 && pct <= BATT_LOW_PCT) &&
+                           (mv < 0 || mv <= BATT_MIN_MV);
+                if (low) {
+                    s_batt_low_streak++;
+                    ESP_LOGW(TAG, "battery low: %d%% %dmV (%d/%d)",
+                             pct, mv, s_batt_low_streak, BATT_LOW_STREAK);
+                    if (s_batt_low_streak >= BATT_LOW_STREAK) {
+                        low_battery_shutdown();   // never returns
+                    }
+                } else {
+                    s_batt_low_streak = 0;
+                }
             }
         }
 

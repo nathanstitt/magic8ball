@@ -61,6 +61,20 @@
 #define BATT_LOW_PCT          15
 #define BATT_WARN_MS          5000
 #define BATT_POLL_MS          10000
+// Shutdown guards. The AXP2101 fuel gauge (reg 0xA4) reads a plausible-looking 0
+// for the first seconds after power-on, before it has settled -- taken at face
+// value that reads as "0% -> shut down" and kills the board on every battery boot.
+// Three independent guards, all of which must agree before we cut power:
+//   - BATT_BOOT_GRACE_MS: ignore the gauge entirely this long after boot.
+//   - BATT_LOW_STREAK: require N consecutive low polls, so one bad I2C read or
+//     one transient gauge glitch can never trigger a shutdown on its own.
+//   - BATT_MIN_MV: cross-check against the VBAT ADC. Above this the pack has real
+//     charge left whatever the SoC byte claims, so the reading is not believed.
+//     3600mV is well above the AXP2101's own undervoltage cutoff (the backstop
+//     that protects the cell if this watchdog never fires at all).
+#define BATT_BOOT_GRACE_MS    30000
+#define BATT_LOW_STREAK       3
+#define BATT_MIN_MV           3600
 
 // --- Recorder + energy VAD (post-wake question capture) ---------------------
 #define REC_FRAME_SAMPLES   480     // 30ms @ 16kHz: one VAD/energy frame
