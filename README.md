@@ -14,6 +14,7 @@ RGB565 pixel pipeline running on the ESP32-S3.
 ## Hardware
 
 - **Board:** [Waveshare ESP32-S3-Touch-AMOLED-1.75](https://www.waveshare.com/esp32-s3-touch-amoled-1.75.htm)
+  ([documentation](https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-1.75) — schematic, pinout, demos)
   - 466×466 round AMOLED, **CO5300** panel driven over QSPI
   - **QMI8658** 6-axis IMU (shake to ask)
   - **CST9217** capacitive touch (tap to ask, hold to factory-reset)
