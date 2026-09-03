@@ -32,6 +32,7 @@
 #include "hal/touch.h"
 #include "hal/power.h"
 #include "hal/wakeword.h"
+#include "hal/sound.h"
 #include "hal/recorder.h"
 #include "scene/listen.h"
 #include "scene/answers.h"
@@ -51,6 +52,7 @@ static SemaphoreHandle_t s_scene_mtx = NULL;
 static bool s_have_imu = false;
 static bool s_have_touch = false;
 static bool s_have_voice = false;
+static bool s_have_sound = false;
 
 // Voice-ask coordination. The logic core sets s_voice_busy and notifies s_voice_task
 // on a wake; the voice task records + asks Gemini, injects the answer (or a random
@@ -403,6 +405,13 @@ static void task_logic(void *arg)
                 first_answer_shown = true;
                 // Start the shake cooldown so reading the answer can't trigger a re-ask.
                 s_shake_cooldown_ms = SHOW_SHAKE_COOLDOWN_MS;
+                // Bloop on the reveal. Edge-triggered on the transition rather than
+                // scheduled off a timer: the voice path holds in ST_LOCKING and
+                // sm_set_pending_text() rewinds state_ms, so any elapsed-time
+                // schedule would desync on every voice ask. This call is
+                // non-blocking (one task notification); the ~450ms I2S write runs
+                // on the audio task, which must never stall this DT_MAX_MS loop.
+                sound_play_bloop();
             }
             prev_state = st;
         }
@@ -618,11 +627,20 @@ extern "C" void app_main(void)
     s_have_imu = (imu_init() == 0);
     s_have_touch = (touch_init() == 0);
     s_have_voice = (wakeword_init() == 0);
+    // Speaker LAST: it shares one I2S peripheral with the mic, and esp_codec_dev
+    // refuses an output open whose sample rate differs from an already-open input.
+    // Coming up after the mic means the bus is already pinned to the rate the
+    // bloop is rendered at. (With no mic, that check accepts any rate, so the
+    // single rate in config.h is correct either way.)
+    s_have_sound = (sound_init() == 0);
     if (!s_have_imu) {
         ESP_LOGW(TAG, "IMU absent - shake disabled");
     }
     if (!s_have_touch) {
         ESP_LOGW(TAG, "touch absent - tap disabled");
+    }
+    if (!s_have_sound) {
+        ESP_LOGW(TAG, "speaker absent - answers are silent");
     }
 
     s_scene_mtx = xSemaphoreCreateMutex();

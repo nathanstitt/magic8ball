@@ -88,6 +88,72 @@
 #define SILENCE_MS       700   // quiet duration (ms) that counts as "done asking"
 #define MIN_SPEECH_MS    600   // silence can't end the ask until this much speech seen
 
+// --- Bloop sound effect (answer reveal, ES8311 speaker) ---------------------
+// Three short blips played when the answer blooms into view (the ST_SHOWING
+// edge). Synthesized procedurally at boot into a RAM buffer -- no WAV asset, no
+// filesystem, no decoder.
+//
+// FREQUENCY BAND: the enclosure is a small plastic ball with a micro speaker,
+// which reproduces essentially nothing below ~500 Hz. Every sample of every blip
+// is therefore kept inside ~470-920 Hz, where the driver still has real output and
+// the ear is sensitive. Do not tune BLOOP_BASE_HZ or BLOOP_SWEEP_RATIO lower
+// without checking the result on hardware: below ~450 Hz this speaker falls off a
+// cliff, and a bloop that sounds great in headphones goes thin or vanishes on the
+// device. Each blip sweeps DOWN (that downward glide is what reads as "bloop"
+// rather than "bleep"), while successive blips are transposed UP, so the
+// three-note gesture rises -- "arrival" rather than "error".
+//
+// SAMPLE RATE is not free to choose: the speaker shares one I2S peripheral with
+// the wake-word mic, and esp_codec_dev refuses to open the output at a rate that
+// differs from an already-open input (audio_codec_data_i2s.c, check_fs_compatible
+// -- it returns ESP_CODEC_DEV_NOT_SUPPORT). So the bloop is rendered at the mic's
+// rate. When the mic is absent that check takes its early-out path and accepts any
+// rate, so this one value is correct in both worlds. Plenty of headroom either
+// way: the top partial is ~1.4 kHz, far under the 8 kHz Nyquist.
+#define BLOOP_SAMPLE_RATE_HZ  MIC_SAMPLE_RATE_HZ
+#define BLOOP_COUNT           3       // number of blips in the sequence
+#define BLOOP_BLIP_MS         140     // tone duration of one blip
+#define BLOOP_GAP_MS          90      // silence after each blip (onsets 230ms apart)
+#define BLOOP_BASE_HZ         760.0f  // start frequency of the first blip
+#define BLOOP_SWEEP_RATIO     0.62f   // each blip glides down to this x its start
+#define BLOOP_STEP_RATIO      1.10f   // each successive blip starts this x higher (~1.5 semitones)
+// Amplitude envelope. A raw gated sine clicks audibly at both edges, so every blip
+// ramps in linearly over BLOOP_ATTACK_MS, decays exponentially (rate BLOOP_DECAY_K;
+// e^-5 ~ -43 dBFS), then is forced to exactly zero over the final BLOOP_TAIL_MS.
+// That last hard fade is what guarantees the buffer begins and ends at literal
+// silence, so starting and stopping the I2S DMA cannot click.
+#define BLOOP_ATTACK_MS       5
+#define BLOOP_TAIL_MS         1
+#define BLOOP_DECAY_K         4.5f
+// Peak sample value (of 32767). ~20% headroom: a clipped sine through a class-D
+// amp into a micro speaker is exactly the harsh buzz we're avoiding. Loudness is
+// set by BLOOP_VOLUME_PCT below, not by running the waveform to the rail.
+#define BLOOP_PEAK_AMPLITUDE  26000
+// Total samples in the rendered sequence (each blip carries its trailing gap).
+#define BLOOP_TOTAL_SAMPLES   (BLOOP_COUNT * (BLOOP_SAMPLE_RATE_HZ / 1000 * \
+                               (BLOOP_BLIP_MS + BLOOP_GAP_MS)))
+// Playback volume, 0..100, mapped by esp_codec_dev onto the ES8311's HARDWARE
+// volume register (this codec provides set_vol, so the software-volume path -- which
+// would rewrite our buffer in place -- is never used). NOTE: a fresh codec handle's
+// stored volume is 0, and esp_codec_dev maps 0 to -96 dB, i.e. dead silence. The
+// speaker path MUST set this after every open or nothing is audible.
+//
+// Despite the name this is NOT a percentage of loudness: esp_codec_dev's default
+// curve maps 0..100 linearly onto -50..0 dB, so each +1 here is +0.5 dB. To sound
+// "about 15% louder" you want roughly +4 dB, i.e. +8 on this scale -- not +15.
+#define BLOOP_VOLUME_PCT      88
+// Audio task. Priority sits one BELOW logic/render (5) and level with the voice task
+// (4): playback is a ~450ms blocking I2S write that must never preempt the animation.
+// Core 0 alongside logic/voice, leaving core 1 free for the renderer + QSPI flush.
+#define SOUND_TASK_STACK      3072
+#define SOUND_TASK_PRIO       4
+#define SOUND_TASK_CORE       0
+// Write the PCM in chunks rather than one 450ms blocking call, and let the DMA
+// drain before closing: esp_codec_dev_write returns once the data is QUEUED, not
+// once it has been played, so closing immediately would cut the tail off.
+#define SOUND_WRITE_CHUNK     1024    // samples per esp_codec_dev_write call
+#define SOUND_DRAIN_MS        40      // wait after the last write, before close
+
 // --- Listening starfield (particles flit as blue stars during a voice listen) ---
 // While listening, the existing particles are re-tasked as a flitting starfield:
 // each periodically re-rolls its velocity (random flitting) and draws brighter and
