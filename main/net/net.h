@@ -6,6 +6,13 @@
 extern "C" {
 #endif
 
+// The device's name on the network, used for BOTH the DHCP hostname sent when
+// requesting a lease (so the router's client list shows "magic8ball" instead of
+// "espressif" or a bare MAC) and the mDNS name that makes http://magic8ball.local
+// resolve. Defined here rather than in either .cpp because wifi.cpp sets the DHCP
+// side and net.cpp advertises the mDNS side, and the two must not drift apart.
+#define NET_HOSTNAME    "magic8ball"
+
 // A single inbound message handed from the HTTP server (its own task) to the
 // logic core. POD, fixed-size, copied by value through a length-1 FreeRTOS queue
 // — no pointers, so there is no ownership/lifetime question across tasks.

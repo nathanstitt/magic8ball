@@ -26,7 +26,8 @@ static const char *TAG = "net";
 // The SoftAP gateway (esp_netif default) and the setup SSID, also referenced by
 // the captive DNS and portal. Kept here as the single source of truth.
 #define SETUP_AP_SSID   "Magic-8-Ball-Setup"
-#define MDNS_HOSTNAME   "magic8ball"
+// The mDNS name comes from net.h (NET_HOSTNAME), shared with the DHCP hostname
+// wifi.cpp sets, so magic8ball.local and the router's client list always agree.
 
 // Length-1 queue: producer (HTTP task) xQueueOverwrite's, consumer (logic task)
 // drains. Latest-wins, by-value copy — no shared buffer, no lifetime question.
@@ -117,10 +118,10 @@ static void on_got_ip(const char *ip_str)
 
     // Advertise magic8ball.local so the user can POST without knowing the IP.
     if (mdns_init() == ESP_OK) {
-        mdns_hostname_set(MDNS_HOSTNAME);
+        mdns_hostname_set(NET_HOSTNAME);
         mdns_instance_name_set("Magic 8 Ball");
         mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
-        ESP_LOGI(TAG, "mDNS: http://%s.local/message", MDNS_HOSTNAME);
+        ESP_LOGI(TAG, "mDNS: http://%s.local/message", NET_HOSTNAME);
     } else {
         ESP_LOGW(TAG, "mDNS init failed (continuing; IP still works)");
     }

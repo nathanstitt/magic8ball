@@ -9,6 +9,7 @@
 
 #include "wifi.h"
 #include "provcfg.h"
+#include "net.h"   // NET_HOSTNAME
 
 #include "esp_log.h"
 #include "esp_wifi.h"
@@ -131,6 +132,18 @@ int wifi_start(wifi_got_ip_cb on_ip, wifi_ap_started_cb on_ap)
 
     s_netif_sta = esp_netif_create_default_wifi_sta();
     s_netif_ap = esp_netif_create_default_wifi_ap();
+
+    // Ask the router to register us as "magic8ball" rather than the default
+    // "espressif". This is the hostname sent in the DHCP request (option 12), so it
+    // is what shows up in the router's client list and, on most home routers, what
+    // makes magic8ball resolve without the .local suffix. Must be set BEFORE the
+    // DHCP client starts (i.e. before esp_wifi_start / the STA connect below) --
+    // setting it afterwards does not change the already-sent lease request.
+    // Non-fatal: a device that fails to name itself still gets an address.
+    esp_err_t hn = esp_netif_set_hostname(s_netif_sta, NET_HOSTNAME);
+    if (hn != ESP_OK) {
+        ESP_LOGW(TAG, "could not set DHCP hostname: %s", esp_err_to_name(hn));
+    }
 
     wifi_init_config_t init = WIFI_INIT_CONFIG_DEFAULT();
     if (esp_wifi_init(&init) != ESP_OK) {
