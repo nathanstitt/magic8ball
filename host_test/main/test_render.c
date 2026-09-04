@@ -4,6 +4,8 @@
 #include "framebuffer.h"
 #include "color.h"
 #include "scene.h"
+#include "text.h"
+#include "font_montserrat_bold.h"
 #include "config.h"
 #include <string.h>
 
@@ -162,6 +164,31 @@ TEST_CASE("word wrap balances across rows instead of leaving lone words", "[rend
     for (int i = 0; i < n; i++) {
         TEST_ASSERT_TRUE(lines[i][0] != '\0');
     }
+}
+
+TEST_CASE("digits render and measure (font has 0-9)", "[render]")
+{
+    // The font originally shipped with no digit glyphs, so "8 Ball" drew as
+    // " Ball" -- text_mb_draw() silently advances past a codepoint it cannot
+    // render, so nothing anywhere reported an error. Assert every digit both
+    // measures non-zero and is wider than the blank-advance fallback.
+    for (char c = '0'; c <= '9'; c++) {
+        TEST_ASSERT_NOT_NULL_MESSAGE((void *)font_mb_get(c),
+                                     "digit glyph missing from the font");
+    }
+    // A string with digits must be wider than the same string without them.
+    TEST_ASSERT_TRUE(text_mb_width("8 Ball") > text_mb_width(" Ball"));
+}
+
+TEST_CASE("string width counts spaces the way draw advances them", "[render]")
+{
+    // text_mb_draw() advances FONT_MB_SPACE_W for a character it has no glyph
+    // for, so text_mb_width() has to charge the same amount: when it counted 0,
+    // the wrap measured every line ~14px per space narrower than it actually
+    // rendered and answers overflowed the triangle.
+    int one = text_mb_width("a b");
+    int none = text_mb_width("ab");
+    TEST_ASSERT_EQUAL_INT(FONT_MB_SPACE_W, one - none);
 }
 
 TEST_CASE("word wrap is top-heavy (more words on the wider upper rows)", "[render]")
